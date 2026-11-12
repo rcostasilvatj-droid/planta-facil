@@ -20,7 +20,8 @@ by Ricardo Silva — Rimivo
 | `index.html` | O app inteiro (HTML, CSS e JavaScript num arquivo só) |
 | `manifest.webmanifest` | Nome, ícones e cores do app instalado (PWA) |
 | `sw.js` | Service worker: guarda os arquivos para funcionar offline |
-| `icons/` | Ícones do app |
+| `icons/` | Ícones do app (arte de Ricardo Silva) |
+| `splash.webp` | Tela de abertura (arte de Ricardo Silva) |
 | `.nojekyll` | Faz o GitHub Pages servir os arquivos sem processar |
 
 ## Onde os dados ficam

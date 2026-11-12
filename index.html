@@ -4,16 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Planta Fácil</title>
-<meta name="theme-color" content="#1d4ed8">
+<meta name="theme-color" content="#021429">
 <meta name="description" content="Desenhe a planta, veja em 3D e calcule lajotas, cimento e areia.">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Planta Fácil">
 <style>
 *{box-sizing:border-box}
+#splash{position:fixed;inset:0;z-index:20;background:#021429;display:flex;align-items:center;justify-content:center;transition:opacity .45s}#splash img{max-width:100%;max-height:100%;object-fit:contain}#splash.hide{opacity:0;pointer-events:none}
 html,body{margin:0;height:100%;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2328;background:#f4f3ef}
 body{display:flex;flex-direction:column}
 header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:#fff;border-bottom:1px solid #ddd}
@@ -44,6 +46,7 @@ aside ul{padding-left:18px;margin:6px 0}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
+<div id="splash"><img src="splash.webp" alt="Planta Fácil — carregando"></div>
 <header>
   <div class="grp">
     <button data-mode="select" class="on" title="Selecionar, mover e arrastar (V)">↖ Selecionar</button>
@@ -1072,6 +1075,14 @@ function openBackups() {
 document.getElementById('bBk').onclick = openBackups;
 
 window.addEventListener('resize', render);
+(function () {
+  const sp = document.getElementById('splash'); if (!sp) return;
+  let gone = false;
+  const hide = () => { if (gone) return; gone = true; sp.classList.add('hide'); setTimeout(() => sp.remove(), 500); };
+  window.addEventListener('load', () => setTimeout(hide, Math.max(0, 1000 - performance.now())));
+  setTimeout(hide, 4000);
+})();
+
 fixOps(); renderPanel(); requestAnimationFrame(fit);
 document.getElementById('cloudSt').onclick = () => { if (cloud) { clearTimeout(cloudTimer); pushCloud(); } };
 initCloud();

@@ -1,6 +1,6 @@
 // Service worker do Planta Fácil: guarda os arquivos para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente a versão abaixo para os aparelhos baixarem a nova.
-const CACHE = 'planta-facil-v1';
+const CACHE = 'planta-facil-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,8 @@ const ASSETS = [
   './icons/icon-512.png',
   './icons/maskable-512.png',
   './icons/apple-touch-icon.png',
+  './icons/favicon-32.png',
+  './splash.webp',
   'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'
 ];
 
