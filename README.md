@@ -1,8 +1,26 @@
 # Planta Fácil
 
-Editor de planta baixa que roda no navegador e pode ser instalado como app (PWA) no celular e no computador.
+Aplicativo web instalável para desenhar plantas baixas, ver a casa em 3D e calcular lajotas, cimento e areia.
 
-by Ricardo Silva — Rimivo
+**by Ricardo Silva**
+
+[Abrir o Planta Fácil](https://rcostasilvatj-droid.github.io/planta-facil/)
+
+## Diretrizes de uso
+
+- No Android, abra o link no Chrome e toque em **Instalar app**. No iPhone ou iPad, abra no Safari e use **Compartilhar → Adicionar à Tela de Início**.
+- Depois da primeira abertura online, o app pode funcionar offline. Projetos, backups e preferências ficam armazenados localmente no aparelho.
+- Para trocar de aparelho, use **💾 Exportar projeto** e abra o arquivo no aparelho de destino em **📂 Abrir projeto**. Abrir um projeto substitui o projeto atual, e o app guarda um backup antes (veja **🕘 Backups**).
+- Os cálculos de materiais e as medidas de escada são estimativas para orçamento. Não substituem o projeto nem a avaliação de um engenheiro ou responsável técnico, principalmente em obras sobre laje.
+- Ao relatar problemas no GitHub, evite incluir plantas de imóveis de terceiros, endereços ou outras informações pessoais.
+
+## Código aberto e manutenção oficial
+
+O código é distribuído sob a [licença MIT](LICENSE). Você pode copiar o projeto, criar um fork e modificar ou distribuir sua própria versão, mantendo os avisos exigidos pela licença.
+
+Ricardo Silva é o único mantenedor da versão oficial. Sugestões podem ser enviadas por Issues, mas a decisão de incorporar mudanças e a publicação da versão oficial cabem exclusivamente a Ricardo. Forks são versões independentes e não alteram este repositório.
+
+O 3D usa a biblioteca [three.js](https://github.com/mrdoob/three.js), também sob licença MIT.
 
 ## O que faz
 
@@ -22,6 +40,7 @@ by Ricardo Silva — Rimivo
 | `sw.js` | Service worker: guarda os arquivos para funcionar offline |
 | `icons/` | Ícones do app (arte de Ricardo Silva) |
 | `splash.webp` | Tela de abertura (arte de Ricardo Silva) |
+| `LICENSE` | Licença MIT |
 | `.nojekyll` | Faz o GitHub Pages servir os arquivos sem processar |
 
 ## Onde os dados ficam
@@ -45,4 +64,3 @@ Assim os aparelhos baixam a versão nova e mostram o aviso "Nova versão instala
 
 - O 3D usa three.js r128, carregado do cdnjs e guardado pelo service worker para uso offline.
 - O código de sincronização com a nuvem do Claude continua no arquivo, mas só funciona dentro do Claude. No GitHub Pages ele mostra "💾 Salvo só neste aparelho".
-- Os cálculos de materiais são estimativas para orçamento, não substituem projeto de engenheiro.
