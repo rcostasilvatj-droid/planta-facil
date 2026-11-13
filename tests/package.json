@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "description": "Testes de regressão do Planta Fácil (não fazem parte do app publicado)",
-  "scripts": { "test": "node regressao.mjs" },
+  "scripts": { "test": "node regressao.mjs", "atualizacao": "node atualizacao.mjs" },
   "devDependencies": { "playwright-core": "^1.48.0" }
 }
