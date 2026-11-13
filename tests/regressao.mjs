@@ -723,6 +723,39 @@ async function pavimentos(browser, url, nome, opcoes) {
   await ctx.close();
 }
 
+// Painel de opções no celular. Problema real relatado no Android (Chrome): o painel ficava espremido numa linha.
+// Também simula a barra de endereço do Chrome (56 px): lá a área visível é menor que o "vh" da tela.
+async function painelCelular(browser, url, nome, opcoes) {
+  if (!opcoes.isMobile) return;
+  telaAtual = nome;
+  for (const barra of [0, 56]) {
+    console.log(`\n=== ${nome}: painel de opções${barra ? ' (barra de endereço simulada)' : ''} ===`);
+    const ctx = await browser.newContext(opcoes), page = await ctx.newPage();
+    await abre(page, url);
+    if (barra) { await page.addStyleTag({ content: `html{height:calc(100% - ${barra}px)}` }); await page.evaluate(() => { window.dispatchEvent(new Event('resize')); }); await page.waitForTimeout(200); }
+    const sufixo = barra ? ' (com barra de endereço)' : '';
+    const med = () => page.evaluate(() => {
+      const a = panel.getBoundingClientRect(), fundo = Math.min(a.bottom, document.documentElement.getBoundingClientRect().bottom, innerHeight);
+      const campos = [...panel.querySelectorAll('input, select')].filter(c => c.getBoundingClientRect().height);
+      const ve = el => { const r = el.getBoundingClientRect(); return r.top >= a.top - 1 && r.bottom <= fundo + 1; };
+      return { alto: Math.round(fundo - a.top), titulo: (panel.querySelector('h3') || {}).textContent, tituloVisivel: ve(panel.querySelector('h3')), campos: campos.length, visiveis: campos.filter(ve).length };
+    });
+    const m0 = await med();
+    confere('painel de opções tem espaço (pelo menos 3 campos à vista)' + sufixo, m0.alto >= 240 && m0.visiveis >= 3, `${m0.alto}px, ${m0.visiveis} campos à vista`);
+    const fim = await page.evaluate(() => { panel.scrollTop = panel.scrollHeight; const hs = [...panel.querySelectorAll('h3')].map(h => h.textContent); return { rolou: panel.scrollTop > 0 && Math.abs(panel.scrollTop - (panel.scrollHeight - panel.clientHeight)) < 2, hs }; });
+    confere('painel rola até o fim (Laje, Varanda, Telhado, Resumo)' + sufixo, fim.rolou && ['Laje', 'Varanda', 'Telhado embutido', 'Resumo'].every(t => fim.hs.includes(t)), fim.hs.join(' | '));
+    await page.evaluate(() => { push(); S.stairs.push({ id: 900, x: 2, y: 3, w: 0.8, l: 2.5, n: 14, h: 2.8, rot: 0 }); done(); });
+    for (const [k, nomeItem, x, y, titulo] of [['w', 'parede', 0, 2, 'Parede'], ['o', 'porta', 2, 6, 'Porta'], ['s', 'escada', 2, 3, 'Escada']]) {
+      await page.evaluate(() => { panel.scrollTop = panel.scrollHeight; }); // painel rolado até o fim, como quem estava lendo
+      const [px, py] = await tela(page, x, y); await page.touchscreen.tap(px, py); await page.waitForTimeout(100);
+      const m = await med(), s = await page.evaluate(() => sel && sel.k);
+      confere(`tocar na ${nomeItem}: título e campos de edição à vista${sufixo}`, s === k && m.titulo === titulo && m.tituloVisivel && m.visiveis >= Math.min(3, m.campos), `${m.titulo}, ${m.visiveis} de ${m.campos} campos à vista, painel ${m.alto}px`);
+      if (!barra) await page.screenshot({ path: path.join(SAIDA, `${nome}-10-painel-${nomeItem}.png`) });
+    }
+    await ctx.close();
+  }
+}
+
 async function offline(r, srv, url) {
   const { ctx, page } = r;
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -757,6 +790,7 @@ for (const [nome, op] of Object.entries(TELAS)) {
     await acabamento(browser, url, nome, op);
     await caminhar(browser, url, nome, op);
     await pavimentos(browser, url, nome, op);
+    await painelCelular(browser, url, nome, op);
     await offline(r, srv, url);
     await r.ctx.close();
   } catch (e) { confere('roteiro terminou sem travar', false, e.message.split('\n')[0]); }

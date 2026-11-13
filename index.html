@@ -48,8 +48,10 @@ header button .ic{margin-right:5px}
 #bMore{display:none}
 @media (max-width:760px){
   main{flex-direction:column}
-  aside{width:auto;border-left:0;border-top:1px solid #ddd;max-height:32vh;padding:10px 14px}
-  #wrap{min-height:62vh} /* o desenho fica com a maior parte da tela; o painel usa o que sobra e rola */
+  /* Desenho com 62% e painel com 38% do espaço que sobra embaixo do topo. É em % do espaço de verdade, e não em
+     "vh": no Chrome do Android o vh conta a tela sem a barra de endereço, e aí o painel ficava espremido. */
+  aside{width:auto;border-left:0;border-top:1px solid #ddd;flex:0 0 38%;min-height:0;padding:10px 14px}
+  #wrap{flex:1 1 0;min-height:0}
   /* Menu compacto do celular: duas fileiras de botões (ícone em cima, nome embaixo); o resto fica no menu "Mais". */
   header{position:relative;gap:4px;padding:5px 6px}
   header .grp{display:contents}
@@ -641,6 +643,7 @@ function fundoArquivo(file) {
   };
   img.src = src;
 }
+let painelQual = null; // o que o painel está mostrando (para saber quando voltar ao topo)
 function renderPanel() {
   let h = '';
   if (sel && sel.k === 'w' && W(sel.id)) {
@@ -726,6 +729,10 @@ function renderPanel() {
       <p class="muted">O projeto fica salvo neste navegador. Use “Exportar projeto” para guardar uma cópia.</p>`;
   }
   panel.innerHTML = h;
+  // Selecionou outra coisa (ou trocou de andar): o painel volta para o topo, para o título e os primeiros
+  // campos aparecerem. Sem isso, quem estava com o painel rolado até o fim via só o botão "Excluir".
+  const qual = sel ? sel.k + sel.id : 'nada-' + S.nivel;
+  if (qual !== painelQual) { panel.scrollTop = 0; painelQual = qual; }
   const $ = id => document.getElementById(id);
   fundoLiga($);
   if ($('pL')) $('pL').onchange = e => {
