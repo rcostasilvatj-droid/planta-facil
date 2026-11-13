@@ -501,7 +501,7 @@ function render() {
     bg: 'Arraste para mover a imagem de fundo. Toque em “Pronto” no painel quando terminar.',
     calib: calib && calib.b ? 'Agora digite no painel a distância real entre os dois pontos.' : calib ? 'Toque no segundo ponto da medida que você conhece.' : 'Toque no primeiro ponto de uma medida que você conhece na imagem (por exemplo, a ponta de uma parede).'
   };
-  hint.textContent = is3d ? '3D: arraste para girar, rodinha ou dois dedos para zoom, botão direito (ou Shift) para mover. Clique num item para editar no painel.' : hints[mode];
+  hint.textContent = is3d ? (walk ? HINT_WALK : HINT_3D) : hints[mode];
 }
 
 /* ---------- painel ---------- */
@@ -922,6 +922,11 @@ document.getElementById('bFit').onclick = fit;
 
 document.addEventListener('keydown', e => {
   if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if (walk && is3d && !e.ctrlKey && !e.metaKey) { // caminhando: W A S D e setas andam; Esc sai
+    const k = TECLAS[e.key.toLowerCase()];
+    if (k) { e.preventDefault(); anda[k] = 1; walkGo(); return; }
+    if (e.key === 'Escape') { walkStop(); return; }
+  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); delSel(); }
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
@@ -995,6 +1000,8 @@ document.getElementById('bReset').onclick = () => {
 
 /* ---------- 3D ---------- */
 let is3d = false, T3 = null, v3dMode = 'full';
+const HINT_3D = '3D: arraste para girar, rodinha ou dois dedos para zoom, botão direito (ou Shift) para mover. Clique num item para editar no painel.';
+const HINT_WALK = 'Caminhar: segure ▲ ▼ para andar e ◀ ▶ para virar (ou W A S D / setas). Arraste para olhar em volta. As paredes não deixam passar; as portas sim.';
 const v3d = document.getElementById('v3d');
 function toggle3d(on) {
   is3d = on;
@@ -1003,7 +1010,7 @@ function toggle3d(on) {
   document.getElementById('b3d').innerHTML = on ? '<span class="ic">✏️</span><span class="tx">Voltar ao 2D</span>' : '<span class="ic">🧊</span><span class="tx">Ver 3D</span>';
   if (on) { if (!T3 && !init3d()) return; focus3d(); }
   render();
-  hint.textContent = on ? '3D: arraste para girar, rodinha ou dois dedos para zoom, botão direito (ou Shift) para mover. Clique num item para editar no painel.' : hint.textContent;
+  hint.textContent = on ? HINT_3D : hint.textContent;
 }
 document.getElementById('b3d').onclick = () => toggle3d(!is3d);
 
@@ -1013,10 +1020,23 @@ function init3d() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   v3d.appendChild(renderer.domElement);
   const ov = document.createElement('div');
-  ov.style.cssText = 'position:absolute;top:10px;left:10px;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:8px;padding:6px 8px;font-size:14px';
-  ov.innerHTML = 'Vista: <select id="v3m" style="font:inherit;padding:4px;border-radius:6px;border:1px solid #ccc"><option value="full">Casa completa</option><option value="noroof">Sem telhado</option><option value="cut">Ver por dentro (paredes baixas)</option></select>';
+  ov.style.cssText = 'position:absolute;top:10px;left:10px;max-width:calc(100% - 40px);display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:8px;padding:6px 8px;font-size:14px';
+  ov.innerHTML = '<span>Vista: <select id="v3m" style="font:inherit;padding:4px;border-radius:6px;border:1px solid #ccc;max-width:200px"><option value="full">Casa completa</option><option value="noroof">Sem telhado</option><option value="cut">Ver por dentro (paredes baixas)</option></select></span><button id="bWalk" style="padding:4px 10px">🚶 Caminhar</button>';
   v3d.appendChild(ov);
   ov.querySelector('select').onchange = e => { v3dMode = e.target.value; render(); };
+  ov.querySelector('#bWalk').onclick = () => walk ? walkStop() : walkStart();
+  // botões de andar (aparecem só no modo caminhar): segurar ▲ anda, ◀ ▶ viram
+  const pad = document.createElement('div'); pad.id = 'wPad';
+  pad.style.cssText = 'position:absolute;right:10px;bottom:72px;display:none;grid-template-columns:repeat(3,54px);gap:6px';
+  pad.innerHTML = '<span></span><button data-m="f" aria-label="Andar para frente">▲</button><span></span><button data-m="l" aria-label="Virar para a esquerda">◀</button><button data-m="b" aria-label="Andar para trás">▼</button><button data-m="r" aria-label="Virar para a direita">▶</button>';
+  pad.querySelectorAll('button').forEach(b => {
+    b.style.cssText = 'height:54px;font-size:20px;touch-action:none;user-select:none;-webkit-user-select:none;background:rgba(255,255,255,.92)';
+    const k = b.dataset.m, solta = () => { anda[k] = 0; };
+    b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); anda[k] = 1; walkGo(); });
+    b.addEventListener('pointerup', solta); b.addEventListener('pointercancel', solta); b.addEventListener('lostpointercapture', solta);
+    b.addEventListener('contextmenu', e => e.preventDefault());
+  });
+  v3d.appendChild(pad);
   renderer.domElement.style.display = 'block';
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0xeef1f4);
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
@@ -1033,9 +1053,12 @@ function init3d() {
   el.addEventListener('pointermove', e => {
     if (pts.has(e.pointerId)) pts.set(e.pointerId, [e.clientX, e.clientY]);
     const o = T3.orb;
+    if (pin && pts.size === 2 && walk) return; // caminhando, o gesto de pinça não faz nada
     if (pin && pts.size === 2) { const [a, b] = [...pts.values()]; o.r = Math.min(Math.max(pin.r * pin.d / Math.hypot(a[0] - b[0], a[1] - b[1]), 2), 80); draw3d(); return; }
     if (!st) return;
     const dx = e.clientX - st.x, dy = e.clientY - st.y; st.x = e.clientX; st.y = e.clientY;
+    // caminhando, arrastar é "olhar em volta", como no Street View: a cena acompanha o dedo
+    if (walk) { walk.yaw += dx * 0.005; walk.pitch = Math.min(Math.max(walk.pitch + dy * 0.005, -1.2), 1.2); draw3d(); return; }
     if (st.pan) {
       const k = o.r * 0.0015, right = new THREE.Vector3(Math.sin(o.th), 0, -Math.cos(o.th)), fwd = new THREE.Vector3(Math.cos(o.th), 0, Math.sin(o.th));
       o.t.addScaledVector(right, dx * k).addScaledVector(fwd, dy * k);
@@ -1048,11 +1071,83 @@ function init3d() {
     st = null;
   };
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
-  el.addEventListener('wheel', e => { e.preventDefault(); T3.orb.r = Math.min(Math.max(T3.orb.r * (e.deltaY < 0 ? 0.9 : 1.1), 2), 80); draw3d(); }, { passive: false });
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (walk) { const p = e.deltaY < 0 ? 0.25 : -0.25; walkMove(Math.sin(walk.yaw) * p, Math.cos(walk.yaw) * p); draw3d(); return; } // rodinha anda
+    T3.orb.r = Math.min(Math.max(T3.orb.r * (e.deltaY < 0 ? 0.9 : 1.1), 2), 80); draw3d(); }, { passive: false });
   return true;
 }
+/* ---------- modo caminhar ---------- */
+// A câmera fica na altura dos olhos e anda sobre o piso da laje. walk.x e walk.z são a posição na planta
+// (em metros), walk.yaw é para onde a pessoa olha na horizontal e walk.pitch é olhar para cima ou para baixo
+// (os dois em radianos). Nada disso é salvo no projeto: é só o jeito de ver.
+const OLHO = 1.6, RAIO = 0.2, VEL = 1.4, GIRO = 1.6; // altura dos olhos (m), "largura" da pessoa (m), passo (m/s), giro (rad/s)
+let walk = null;
+const anda = { f: 0, b: 0, l: 0, r: 0 }; // o que está apertado agora: frente, trás, virar à esquerda, à direita
+// O ponto (x, z) cabe uma pessoa? Não pode sair da laje nem encostar numa parede, a não ser no vão de uma porta.
+function livre(x, z) {
+  const L = S.laje;
+  if (x < RAIO || z < RAIO || x > L.w - RAIO || z > L.h - RAIO) return false;
+  for (const w of S.walls) {
+    const q = G(w), dx = x - w.x1, dz = z - w.y1;
+    const s = dx * q.ux + dz * q.uy;          // quanto andou ao longo da parede, a partir do início dela
+    const d = Math.abs(dx * q.nx + dz * q.ny); // distância até o eixo da parede
+    if (d >= w.t / 2 + RAIO || s < -w.t / 2 - RAIO || s > q.L + w.t / 2 + RAIO) continue;
+    const porta = S.ops.some(o => o.wall === w.id && o.type === 'door' && s > o.pos - o.w / 2 + RAIO / 2 && s < o.pos + o.w / 2 - RAIO / 2);
+    if (!porta) return false;
+  }
+  return true;
+}
+// Anda (dx, dz). Se bater na parede, tenta deslizar ao longo dela (só no x ou só no z).
+// Se a pessoa já estiver presa (ex.: alguém desenhou uma parede em cima dela), deixa sair.
+function walkMove(dx, dz) {
+  const w = walk, ok = (x, z) => livre(x, z) || !livre(w.x, w.z);
+  if (ok(w.x + dx, w.z + dz)) { w.x += dx; w.z += dz; } else if (ok(w.x + dx, w.z)) w.x += dx; else if (ok(w.x, w.z + dz)) w.z += dz;
+}
+function walkUI() {
+  const b = document.getElementById('bWalk'), p = document.getElementById('wPad');
+  if (b) { b.textContent = walk ? '✖ Sair do caminhar' : '🚶 Caminhar'; b.classList.toggle('on', !!walk); }
+  if (p) p.style.display = walk ? 'grid' : 'none';
+  hint.textContent = walk ? HINT_WALK : HINT_3D;
+}
+function walkStart() {
+  const b = wallBox(), L = S.laje;
+  let cx = b ? (b.x0 + b.x1) / 2 : L.w / 2, cz = b ? (b.y0 + b.y1) / 2 : L.h / 2;
+  if (!livre(cx, cz)) { // o centro não cabe: procura o ponto livre mais perto dele
+    let best = null;
+    for (let x = RAIO; x <= L.w - RAIO; x += 0.1) for (let z = RAIO; z <= L.h - RAIO; z += 0.1)
+      if (livre(x, z)) { const d = (x - cx) ** 2 + (z - cz) ** 2; if (!best || d < best[2]) best = [x, z, d]; }
+    if (best) { cx = best[0]; cz = best[1]; }
+  }
+  walk = { x: cx, z: cz, yaw: 0, pitch: 0 }; // yaw 0 = olhando para a frente da planta (lado da varanda)
+  if (v3dMode === 'cut') { v3dMode = 'noroof'; document.getElementById('v3m').value = 'noroof'; } // paredes baixas não fazem sentido andando
+  T3.camera.fov = 65; T3.camera.updateProjectionMatrix(); // ângulo mais aberto, como o olho dentro de um cômodo
+  walkUI(); render();
+}
+function walkStop() {
+  walk = null; Object.keys(anda).forEach(k => anda[k] = 0);
+  if (T3) { T3.camera.fov = 45; T3.camera.updateProjectionMatrix(); }
+  walkUI(); render(); // render: redesenha a porta, que volta a ficar sólida
+}
+// Enquanto algum botão está apertado, anda um pouco a cada quadro da tela (requestAnimationFrame).
+// dt = segundos desde o quadro anterior, para a velocidade ser a mesma em celular lento ou rápido.
+let walkRaf = 0, walkT = 0;
+function walkLoop(t) {
+  walkRaf = 0; if (!walk || !is3d) return;
+  const dt = walkT ? Math.min(0.05, (t - walkT) / 1000) : 0.016; walkT = t;
+  walk.yaw += (anda.l - anda.r) * GIRO * dt;
+  const v = (anda.f - anda.b) * VEL * dt; if (v) walkMove(Math.sin(walk.yaw) * v, Math.cos(walk.yaw) * v);
+  draw3d();
+  if (anda.f || anda.b || anda.l || anda.r) walkRaf = requestAnimationFrame(walkLoop); else walkT = 0;
+}
+function walkGo() { if (!walkRaf) { walkT = 0; walkRaf = requestAnimationFrame(walkLoop); } }
+const TECLAS = { w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', arrowleft: 'l', d: 'r', arrowright: 'r' };
+document.addEventListener('keyup', e => { const k = TECLAS[e.key.toLowerCase()]; if (k) anda[k] = 0; });
+window.addEventListener('blur', () => Object.keys(anda).forEach(k => anda[k] = 0)); // trocou de janela: para de andar
+
 function focus3d() {
   if (!T3) return;
+  if (walk) walkStop();
   const [x0, y0, x1, y1] = bounds();
   T3.orb.t.set((x0 + x1) / 2, 0.3, (y0 + y1) / 2);
   T3.orb.r = Math.max(x1 - x0, y1 - y0, 4) * 1.9;
@@ -1179,7 +1274,7 @@ function build3d() {
       if (o.type === 'door') {
         const dh = Math.min(o.h, H);
         seg(a, b, dh, H, col, 0, ud);
-        seg(a, b, 0, dh, oon ? 0x1d4ed8 : 0x9a6b3f, 0.04, ou);
+        seg(a, b, 0, dh, oon ? 0x1d4ed8 : 0x9a6b3f, 0.04, ou, walk ? 0.35 : 0); // caminhando, a porta fica transparente: dá para ver o outro lado ao passar
       } else {
         const s0 = Math.min(o.sill, H), s1 = Math.min(o.sill + o.h, H);
         seg(a, b, 0, s0, col, 0, ud);
@@ -1258,8 +1353,14 @@ function draw3d() {
   T3.renderer.setSize(w, h, false); T3.renderer.domElement.style.width = w + 'px'; T3.renderer.domElement.style.height = h + 'px';
   T3.camera.aspect = w / h; T3.camera.updateProjectionMatrix();
   const o = T3.orb;
-  T3.camera.position.set(o.t.x + o.r * Math.sin(o.ph) * Math.cos(o.th), o.t.y + o.r * Math.cos(o.ph), o.t.z + o.r * Math.sin(o.ph) * Math.sin(o.th));
-  T3.camera.lookAt(o.t);
+  if (walk) { // olho da pessoa: posição + direção (yaw na horizontal, pitch para cima/baixo)
+    const c = Math.cos(walk.pitch);
+    T3.camera.position.set(walk.x, OLHO, walk.z);
+    T3.camera.lookAt(walk.x + Math.sin(walk.yaw) * c, OLHO + Math.sin(walk.pitch), walk.z + Math.cos(walk.yaw) * c);
+  } else {
+    T3.camera.position.set(o.t.x + o.r * Math.sin(o.ph) * Math.cos(o.th), o.t.y + o.r * Math.cos(o.ph), o.t.z + o.r * Math.sin(o.ph) * Math.sin(o.th));
+    T3.camera.lookAt(o.t);
+  }
   T3.renderer.render(T3.scene, T3.camera);
 }
 

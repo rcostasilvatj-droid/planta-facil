@@ -519,6 +519,92 @@ async function acabamento(browser, url, nome, opcoes) {
   await ctx.close();
 }
 
+// Item 7: modo caminhar no 3D. Usa o modelo padrão (cômodo de 4 x 6 m, porta na parede da frente em x = 2).
+async function caminhar(browser, url, nome, opcoes) {
+  telaAtual = nome;
+  console.log(`\n=== ${nome}: caminhar no 3D ===`);
+  const ctx = await browser.newContext(opcoes), page = await ctx.newPage();
+  const erros = []; page.on('pageerror', e => erros.push(e.message));
+  await abre(page, url);
+  const antes = await page.evaluate(() => JSON.stringify(Object.assign({}, S, { _t: 0 })));
+  await topo(page, '#b3d');
+  await page.waitForFunction(() => is3d && T3 && T3.group, null, { timeout: 8000 });
+  await page.locator('#v3m').selectOption('cut');
+  await page.locator('#bWalk').click();
+  const ini = await page.evaluate(() => ({ walk, y: T3.camera.position.y, fov: T3.camera.fov, modo: v3dMode, livre: walk && livre(walk.x, walk.z), b: wallBox(), pad: getComputedStyle(document.getElementById('wPad')).display, hint: hint.textContent }));
+  const dentro = ini.walk && ini.walk.x > ini.b.x0 && ini.walk.x < ini.b.x1 && ini.walk.z > ini.b.y0 && ini.walk.z < ini.b.y1;
+  confere('entrar no modo caminhar: olho a 1,60 m, dentro da casa, num lugar livre', !!ini.walk && Math.abs(ini.y - 1.6) < 1e-6 && ini.fov === 65 && dentro && ini.livre, ini.walk && `x ${ini.walk.x.toFixed(2)} z ${ini.walk.z.toFixed(2)}`);
+  confere('caminhar mostra os botões de andar e a explicação', ini.pad === 'grid' && /Caminhar/.test(ini.hint));
+  confere('vista "paredes baixas" vira "sem telhado" ao caminhar', ini.modo === 'noroof', ini.modo);
+  const portaOp = () => page.evaluate(() => { let r = null; T3.group.traverse(o => { if (o.isMesh && o.userData.k === 'o' && S.ops.find(p => p.id === o.userData.id).type === 'door') r = o.material.opacity; }); return r; });
+  const opAnd = await portaOp();
+
+  // botão ▲ na tela (segurar): anda para a frente
+  const p0 = await page.evaluate(() => ({ ...walk }));
+  const bf = await page.locator('#wPad [data-m="f"]').boundingBox();
+  await page.mouse.move(bf.x + bf.width / 2, bf.y + bf.height / 2); await page.mouse.down(); await page.waitForTimeout(700); await page.mouse.up();
+  const p1 = await page.evaluate(() => ({ ...walk }));
+  const andou = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+  confere('segurar ▲ anda para a frente', andou > 0.3 && p1.z > p0.z, `andou ${andou.toFixed(2)} m`);
+  await page.waitForTimeout(150);
+  const p1b = await page.evaluate(() => ({ ...walk }));
+  confere('soltar o botão para de andar', p1b.x === p1.x && p1b.z === p1.z);
+  // botão ◀ vira
+  const bl = await page.locator('#wPad [data-m="l"]').boundingBox();
+  await page.mouse.move(bl.x + bl.width / 2, bl.y + bl.height / 2); await page.mouse.down(); await page.waitForTimeout(400); await page.mouse.up();
+  const p2 = await page.evaluate(() => ({ ...walk }));
+  confere('segurar ◀ vira sem sair do lugar', p2.yaw > p1.yaw + 0.2 && p2.x === p1b.x && p2.z === p1b.z, `giro ${(p2.yaw - p1.yaw).toFixed(2)} rad`);
+
+  // teclado (só faz sentido no computador, mas tem que funcionar nos dois)
+  await page.evaluate(() => { walk.x = 2; walk.z = 3; walk.yaw = 0; });
+  await page.keyboard.down('s'); await page.waitForTimeout(500); await page.keyboard.up('s');
+  const p3 = await page.evaluate(() => ({ ...walk }));
+  confere('tecla S anda para trás', p3.z < 2.8, `z 3 → ${p3.z.toFixed(2)}`);
+
+  // arrastar olha em volta, sem mudar de lugar
+  const cv = await page.locator('#v3d canvas').boundingBox();
+  await page.mouse.move(cv.x + cv.width / 2, cv.y + cv.height / 2); await page.mouse.down();
+  await page.mouse.move(cv.x + cv.width / 2 + 80, cv.y + cv.height / 2 + 30, { steps: 5 }); await page.mouse.up();
+  const p4 = await page.evaluate(() => ({ ...walk }));
+  confere('arrastar olha em volta sem sair do lugar', Math.abs(p4.yaw - p3.yaw) > 0.2 && p4.pitch > 0 && p4.x === p3.x && p4.z === p3.z, `yaw ${(p4.yaw - p3.yaw).toFixed(2)} pitch ${p4.pitch.toFixed(2)}`);
+
+  // colisão: andar 5 m contra a parede da direita (x = 4, com janela) para antes dela
+  const col = await page.evaluate(() => {
+    const r = {};
+    walk.x = 2; walk.z = 3; for (let i = 0; i < 100; i++) walkMove(0.05, 0); r.parede = walk.x;
+    walk.x = 1; walk.z = 5; for (let i = 0; i < 100; i++) walkMove(0, 0.05); r.semPorta = walk.z;
+    walk.x = 2; walk.z = 5; for (let i = 0; i < 100; i++) walkMove(0, 0.05); r.porta = walk.z;
+    walk.x = 2.3; walk.z = 3; for (let i = 0; i < 100; i++) walkMove(0.05, 0.05); r.desliza = [walk.x, walk.z];
+    return r;
+  });
+  confere('parede não deixa passar (nem a da janela)', col.parede < 3.73 && col.parede > 3.5, `para em x ${col.parede.toFixed(2)} (parede em 4)`);
+  confere('fora da porta, a parede da frente segura', col.semPorta < 5.8, `z ${col.semPorta.toFixed(2)} (parede em 6)`);
+  confere('pela porta dá para sair para a varanda, e a beira da laje segura', col.porta > 6.5 && col.porta <= 7.3 + 1e-9, `z ${col.porta.toFixed(2)} (laje até 7,5)`);
+  confere('andando na diagonal contra a parede, desliza ao longo dela', col.desliza[0] < 3.73 && col.desliza[1] > 4, col.desliza.map(v => v.toFixed(2)).join(', '));
+
+  // de frente para a porta, para a captura
+  await page.evaluate(() => { walk.x = 2; walk.z = 3.4; walk.yaw = 0; walk.pitch = -0.05; draw3d(); });
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-8-caminhar.png`) });
+
+  // sair: pelo botão; e voltar ao 2D e de novo ao 3D começa no modo normal
+  await page.locator('#bWalk').click();
+  const fim = await page.evaluate(() => ({ walk, fov: T3.camera.fov, pad: getComputedStyle(document.getElementById('wPad')).display }));
+  confere('sair do modo caminhar volta à vista normal', fim.walk === null && fim.fov === 45 && fim.pad === 'none');
+  const opFim = await portaOp();
+  confere('porta fica transparente caminhando e sólida de novo ao sair', opAnd < 1 && opFim === 1, `${opAnd} → ${opFim}`);
+  await page.locator('#bWalk').click();
+  await topo(page, '#b3d'); await topo(page, '#b3d');
+  confere('voltar ao 2D e reabrir o 3D começa sem caminhar', await page.evaluate(() => is3d && walk === null && T3.camera.fov === 45));
+  if (!opcoes.isMobile) {
+    await page.locator('#bWalk').click(); await page.keyboard.press('Escape');
+    confere('Esc sai do modo caminhar', await page.evaluate(() => walk === null));
+  }
+  const depois = await page.evaluate(() => JSON.stringify(Object.assign({}, S, { _t: 0 })));
+  confere('caminhar não muda o projeto', depois === antes);
+  confere('sem erros de JavaScript (caminhar)', erros.length === 0, erros.join(' | '));
+  await ctx.close();
+}
+
 async function offline(r, srv, url) {
   const { ctx, page } = r;
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -551,6 +637,7 @@ for (const [nome, op] of Object.entries(TELAS)) {
     const r = await roteiro(browser, url, nome, op);
     await espacoCheio(browser, url, nome, op);
     await acabamento(browser, url, nome, op);
+    await caminhar(browser, url, nome, op);
     await offline(r, srv, url);
     await r.ctx.close();
   } catch (e) { confere('roteiro terminou sem travar', false, e.message.split('\n')[0]); }
