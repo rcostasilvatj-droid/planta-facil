@@ -605,6 +605,124 @@ async function caminhar(browser, url, nome, opcoes) {
   await ctx.close();
 }
 
+// Item 8: pavimentos (térreo desenhado de verdade). Modelo padrão: laje 5 x 7,5 m com cômodo de 4 x 6 m.
+async function pavimentos(browser, url, nome, opcoes) {
+  telaAtual = nome;
+  console.log(`\n=== ${nome}: pavimentos (térreo) ===`);
+  const ctx = await browser.newContext(opcoes), page = await ctx.newPage();
+  const erros = []; page.on('pageerror', e => erros.push(e.message));
+  await abre(page, url);
+
+  const velho = await page.evaluate(() => { const x = JSON.parse(JSON.stringify(S)); delete x.nivel; delete x.outro; norm(x); return { nivel: x.nivel, outro: x.outro }; });
+  confere('projeto antigo abre editando a laje, com térreo vazio', velho.nivel === 'laje' && velho.outro.walls.length === 0 && velho.outro.ops.length === 0 && velho.outro.furn.length === 0, JSON.stringify(velho));
+  const matAntes = await page.evaluate(() => JSON.stringify(calcMat()));
+  const lajeIds = await page.evaluate(() => S.walls.map(w => w.id).join(','));
+  // sem térreo desenhado: a caixa transparente de antes continua no 3D
+  await topo(page, '#b3d'); await page.waitForFunction(() => is3d && T3 && T3.group, null, { timeout: 8000 });
+  const caixa = await page.evaluate(() => { let n = 0; T3.group.traverse(o => { if (o.isMesh && Math.abs(o.material.opacity - 0.18) < 1e-6) n++; }); return n; });
+  confere('sem térreo desenhado, o 3D mostra a caixa transparente de antes', caixa === 1);
+  await topo(page, '#b3d');
+
+  // troca para o térreo pelo botão do desenho
+  await page.locator('#bTerreo').click();
+  const t1 = await page.evaluate(() => ({ nivel: S.nivel, walls: S.walls.length, outro: S.outro.walls.length, on: document.getElementById('bTerreo').classList.contains('on'), painel: panel.innerText, fantasma: svg.querySelectorAll('polygon[fill="#8a96a6"]').length }));
+  confere('botão Térreo troca o andar e mostra o térreo vazio', t1.nivel === 'terreo' && t1.walls === 0 && t1.outro === 4 && t1.on && /Térreo \(casa de baixo\)/.test(t1.painel), JSON.stringify({ ...t1, painel: undefined }));
+  confere('no térreo, as paredes da laje aparecem em cinza para referência', t1.fantasma === 4, t1.fantasma + ' paredes cinza');
+
+  // desenha uma parede no térreo pela tela, e completa a casa de baixo (5 x 7,5) com porta e um sofá
+  await topo(page, '[data-mode="wall"]');
+  await arrasta(page, 0, 0, 5, 0);
+  const d1 = await page.evaluate(() => ({ n: S.walls.length, outro: S.outro.walls.length, sel }));
+  confere('desenhar parede no térreo não mexe na laje', d1.n === 1 && d1.outro === 4 && d1.sel && d1.sel.k === 'w', `térreo ${d1.n}, laje ${d1.outro}`);
+  await page.evaluate(() => {
+    push();
+    [[5, 0, 5, 7.5], [5, 7.5, 0, 7.5], [0, 7.5, 0, 0]].forEach(([x1, y1, x2, y2]) => S.walls.push({ id: S.next++, x1, y1, x2, y2, t: 0.15 }));
+    const fr = S.walls[2]; S.ops.push({ id: S.next++, type: 'door', wall: fr.id, pos: 2.5, w: 0.9, h: 2.1, side: 1, hinge: false });
+    S.walls.push({ id: S.next++, x1: 2.5, y1: 0, x2: 2.5, y2: 4, t: 0.12 }); // parede interna
+    S.furn.push({ id: S.next++, type: 'sofa', x: 1.2, y: 5.5, w: 1.8, d: 0.85, rot: 0 });
+    sel = null; done();
+  });
+  await page.locator('[data-mode="select"]').click();
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-9-terreo-2d.png`) });
+  const mat2 = await page.evaluate(() => JSON.stringify(calcMat()));
+  confere('materiais contam só a laje, mesmo editando o térreo', mat2 === matAntes);
+  const png = await page.evaluate(() => build(true));
+  confere('paredes cinza de referência não vão para o PNG', !png.includes('#8a96a6'));
+
+  // apagar no térreo não apaga na laje
+  const tId = await page.evaluate(() => { push(); const w = { id: S.next++, x1: 0.5, y1: 1, x2: 1.5, y2: 1, t: 0.12 }; S.walls.push(w); done(); return w.id; });
+  await page.evaluate(id => { sel = { k: 'w', id }; delSel(); }, tId);
+  const ap = await page.evaluate(() => ({ t: S.walls.length, l: S.outro.walls.length }));
+  confere('apagar parede do térreo não apaga a da laje', ap.t === 5 && ap.l === 4, JSON.stringify(ap));
+
+  // volta para a laje: tudo da laje igual; o térreo guardado
+  await page.locator('#bLaje').click();
+  const v = await page.evaluate(() => ({ nivel: S.nivel, ids: S.walls.map(w => w.id).join(','), t: S.outro.walls.length, ops: S.outro.ops.length, furn: S.outro.furn.length, fantasma: svg.querySelectorAll('polygon[fill="#8a96a6"]').length, mat: JSON.stringify(calcMat()) }));
+  confere('voltar para a laje: paredes da laje intactas e térreo guardado', v.nivel === 'laje' && v.ids === lajeIds && v.t === 5 && v.ops === 1 && v.furn === 1, JSON.stringify({ ...v, mat: undefined }));
+  confere('na laje, as paredes do térreo aparecem em cinza', v.fantasma === v.t, v.fantasma + ' paredes cinza');
+  confere('materiais da laje iguais aos de antes de desenhar o térreo', v.mat === matAntes);
+  // desfazer a troca de andar volta para o térreo
+  await page.evaluate(() => undo());
+  const un = await page.evaluate(() => ({ nivel: S.nivel, n: S.walls.length }));
+  await page.evaluate(() => redo());
+  confere('desfazer a troca de andar volta para o térreo (refazer volta para a laje)', un.nivel === 'terreo' && un.n === 5 && (await page.evaluate(() => S.nivel)) === 'laje', JSON.stringify(un));
+
+  // 3D: térreo desenhado embaixo da laje, sem a caixa transparente
+  await topo(page, '#b3d'); await page.waitForFunction(() => is3d && T3 && T3.group, null, { timeout: 8000 });
+  await page.locator('#v3m').selectOption('full');
+  const m3 = await page.evaluate(() => {
+    const r = { terreo: 0, laje: 0, caixa: 0, abaixo: true, porta: 0, movel: 0 };
+    T3.group.traverse(o => {
+      if (!o.isMesh) return;
+      const u = o.userData;
+      if (u.andar === 'terreo') { if (u.k === 'w') r.terreo++; if (u.k === 'o') r.porta++; const p = new THREE.Vector3(); o.getWorldPosition(p); if (u.k === 'f') r.movel++; if (p.y > 0) r.abaixo = false; }
+      if (u.andar === 'laje' && u.k === 'w') r.laje++;
+      if (Math.abs(o.material.opacity - 0.18) < 1e-6) r.caixa++;
+    });
+    return r;
+  });
+  confere('3D mostra as paredes, a porta e o móvel do térreo, embaixo da laje', m3.terreo > 0 && m3.porta === 1 && m3.movel > 0 && m3.abaixo && m3.laje > 0, JSON.stringify(m3));
+  confere('com o térreo desenhado, a caixa transparente some', m3.caixa === 0);
+  await page.evaluate(() => { T3.orb.th = 0.6; T3.orb.ph = 1.2; T3.orb.r = 16; T3.orb.t.set(2.5, -0.8, 3.75); draw3d(); });
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-9-terreo-3d.png`) });
+
+  // vista "só a casa de baixo"; tocar numa parede do térreo passa a editar o térreo
+  await page.locator('#v3m').selectOption('terreo');
+  const so = await page.evaluate(() => { let t = 0, l = 0; T3.group.traverse(o => { if (o.isMesh && o.userData.k === 'w') { if (o.userData.andar === 'terreo') t++; else l++; } }); return { t, l }; });
+  confere('vista "só a casa de baixo" esconde a laje e mostra o térreo', so.t > 0 && so.l === 0, JSON.stringify(so));
+  await page.evaluate(() => { T3.orb.th = 0.9; T3.orb.ph = 0.7; T3.orb.r = 14; T3.orb.t.set(2.5, -2, 3.75); draw3d(); });
+  const alvo = await page.evaluate(() => {
+    const r = T3.renderer.domElement.getBoundingClientRect(), w = S.outro.walls[1], v = new THREE.Vector3((w.x1 + w.x2) / 2, -S.lajeH + 1.0, (w.y1 + w.y2) / 2).project(T3.camera);
+    return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height, w.id];
+  });
+  await page.mouse.click(alvo[0], alvo[1]);
+  const pk = await page.evaluate(() => ({ nivel: S.nivel, sel, ok: sel && !!W(sel.id) }));
+  confere('tocar numa parede do térreo no 3D seleciona ela e passa a editar o térreo', pk.nivel === 'terreo' && pk.ok && pk.sel.id === alvo[2], JSON.stringify(pk));
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-9-so-terreo.png`) });
+
+  // caminhar no térreo: olho a 1,60 m do chão de baixo; as paredes do térreo seguram
+  await page.locator('#v3m').selectOption('full');
+  await page.locator('#bWalk').click();
+  const wk = await page.evaluate(() => {
+    const y = T3.camera.position.y, r = { y, base: -S.lajeH };
+    walk.x = 1; walk.z = 3; for (let i = 0; i < 100; i++) walkMove(0.05, 0); r.parede = walk.x; // parede interna em x = 2,5
+    walk.x = 1; walk.z = 6; for (let i = 0; i < 100; i++) walkMove(0, 0.05); r.frente = walk.z;   // parede da frente em 7,5, sem porta em x = 1
+    walk.x = 2.5; walk.z = 6; for (let i = 0; i < 100; i++) walkMove(0, 0.05); r.porta = walk.z;  // porta em x = 2,5
+    return r;
+  });
+  confere('caminhar no térreo: olho a 1,60 m do chão de baixo', Math.abs(wk.y - (wk.base + 1.6)) < 1e-6, `câmera em ${wk.y.toFixed(2)} m`);
+  confere('no térreo, as paredes de baixo seguram e a porta deixa sair', wk.parede < 2.3 && wk.frente < 7.3 && wk.porta > 7.6, `parede x ${wk.parede.toFixed(2)}, frente z ${wk.frente.toFixed(2)}, porta z ${wk.porta.toFixed(2)}`);
+  await page.locator('#bWalk').click();
+  await topo(page, '#b3d');
+
+  // continua depois de recarregar
+  await page.reload(); await page.waitForSelector('#splash', { state: 'detached', timeout: 10000 });
+  const rec = await page.evaluate(() => ({ nivel: S.nivel, t: andar('terreo').walls.length, l: andar('laje').walls.length }));
+  confere('andar e térreo continuam depois de recarregar', rec.nivel === 'terreo' && rec.t === 5 && rec.l === 4, JSON.stringify(rec));
+  confere('sem erros de JavaScript (pavimentos)', erros.length === 0, erros.join(' | '));
+  await ctx.close();
+}
+
 async function offline(r, srv, url) {
   const { ctx, page } = r;
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -638,6 +756,7 @@ for (const [nome, op] of Object.entries(TELAS)) {
     await espacoCheio(browser, url, nome, op);
     await acabamento(browser, url, nome, op);
     await caminhar(browser, url, nome, op);
+    await pavimentos(browser, url, nome, op);
     await offline(r, srv, url);
     await r.ctx.close();
   } catch (e) { confere('roteiro terminou sem travar', false, e.message.split('\n')[0]); }

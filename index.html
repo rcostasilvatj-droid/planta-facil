@@ -29,6 +29,8 @@ main{flex:1;display:flex;min-height:0}
 #wrap{flex:1;position:relative;min-width:0;background:#fff}
 #cv{width:100%;height:100%;display:block;touch-action:none;user-select:none}
 #alerta{position:absolute;left:8px;right:8px;top:8px;z-index:3;display:none;background:#b42318;color:#fff;border-radius:8px;padding:8px 12px;font-size:14px;line-height:1.4;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
+#andar{position:absolute;top:8px;right:8px;z-index:2;display:flex;gap:4px;align-items:center;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:8px;padding:4px 6px;font-size:13px;color:#555}
+#andar button{padding:4px 9px;font-size:13px}
 #hint{position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #ddd;border-radius:8px;padding:6px 10px;font-size:13px;color:#555;max-width:calc(100% - 20px)}
 aside{width:290px;padding:14px;overflow:auto;background:#fafaf8;border-left:1px solid #ddd;font-size:14px}
 aside h3{font-size:15px;margin:4px 0 10px;font-weight:600}
@@ -107,7 +109,7 @@ header button .ic{margin-right:5px}
   </div>
 </header>
 <main>
-  <div id="wrap"><svg id="cv" xmlns="http://www.w3.org/2000/svg"></svg><div id="v3d" style="position:absolute;inset:0;display:none;touch-action:none;background:#eef1f4"></div><div id="hint"></div><div id="alerta" role="alert" title="Toque para fechar"></div></div>
+  <div id="wrap"><svg id="cv" xmlns="http://www.w3.org/2000/svg"></svg><div id="v3d" style="position:absolute;inset:0;display:none;touch-action:none;background:#eef1f4"></div><div id="hint"></div><div id="andar" title="Escolha qual andar você está desenhando"><span>Andar:</span><button id="bLaje">⬆ Laje</button><button id="bTerreo">⬇ Térreo</button></div><div id="alerta" role="alert" title="Toque para fechar"></div></div>
   <aside id="panel"></aside>
 </main>
 <div id="modal"><div class="box" id="mbox"></div></div>
@@ -168,8 +170,12 @@ function norm(x) {
   x.roof = Object.assign({ on: true, plat: 0.9, caim: 10, dir: 'frente' }, x.roof || {});
   x.fundo = Object.assign(fundoDef(), x.fundo || {});
   x.acab = acabNorm(x.acab);
+  // andares: projetos antigos não têm térreo desenhado e estavam editando a laje
+  x.nivel = x.nivel === 'terreo' ? 'terreo' : 'laje';
+  x.outro = x.outro && typeof x.outro === 'object' ? x.outro : {};
+  ['walls', 'ops', 'furn'].forEach(k => { if (!Array.isArray(x.outro[k])) x.outro[k] = []; });
   x.next = Math.max(x.next, 200);
-  x.ops.forEach(o => { if (!o.h) o.h = o.type === 'door' ? 2.1 : 1.0; if (o.type === 'window' && o.sill === undefined) o.sill = 1.1; });
+  x.ops.concat(x.outro.ops).forEach(o => { if (!o.h) o.h = o.type === 'door' ? 2.1 : 1.0; if (o.type === 'window' && o.sill === undefined) o.sill = 1.1; });
   return x;
 }
 function modelo() {
@@ -196,7 +202,9 @@ function modelo() {
     roof: { on: true, plat: 0.9, caim: 10, dir: 'frente' },
     mat: matDef(),
     fundo: fundoDef(),
-    acab: acabDef()
+    acab: acabDef(),
+    nivel: 'laje',
+    outro: { walls: [], ops: [], furn: [] }
   };
 }
 
@@ -308,6 +316,22 @@ function G(w) {
 function P(w, g, a, off) { off = off || 0; return [w.x1 + g.ux * a + g.nx * off, w.y1 + g.uy * a + g.ny * off]; }
 const pt = p => p[0].toFixed(4) + ',' + p[1].toFixed(4);
 
+/* ---------- andares ---------- */
+// O projeto tem dois andares: 'laje' (o de cima, que está sendo construído) e 'terreo' (a casa de baixo).
+// O andar que está sendo editado fica em S.walls, S.ops e S.furn: assim o editor inteiro continua igual,
+// sem precisar saber que existem dois andares. O outro andar fica guardado em S.outro, e S.nivel diz
+// qual andar está em S.walls agora. As escadas (S.stairs) ligam os dois andares e ficam fora da troca.
+const LAJE_E = 0.12; // espessura da laje (m)
+function trocaDados() { const o = S.outro; S.outro = { walls: S.walls, ops: S.ops, furn: S.furn }; S.walls = o.walls; S.ops = o.ops; S.furn = o.furn; }
+function andar(n) { return n === S.nivel ? { walls: S.walls, ops: S.ops, furn: S.furn } : S.outro; }
+// Roda fn com a laje em S.walls (para o cálculo de materiais, o guarda-corpo etc.) e depois desfaz a troca.
+// S.nivel também muda durante a troca: senão quem chamou naLaje (ex.: calcMat) achava que ainda estava no térreo
+// e chamava naLaje de novo, sem fim. "finally" garante que tudo volta como estava, mesmo se fn der erro.
+function naLaje(fn) { if (S.nivel === 'laje') return fn(); trocaDados(); S.nivel = 'laje'; try { return fn(); } finally { S.nivel = 'terreo'; trocaDados(); } }
+function trocaAndar(n) { if (n === S.nivel) return; push(); trocaDados(); S.nivel = n; sel = null; preview = null; drag = null; done(); }
+// Altura padrão das paredes: na laje é o pé-direito; no térreo vai do chão até a laje, menos a espessura dela.
+function hPad(n) { return (n || S.nivel) === 'terreo' ? Math.max(0.5, S.lajeH - LAJE_E) : S.wallH; }
+
 function fixOps() {
   S.ops = S.ops.filter(o => W(o.wall));
   S.ops.forEach(o => {
@@ -320,6 +344,7 @@ function fixOps() {
 
 /* ---------- guarda-corpo ---------- */
 function guardSegs() {
+  if (S.nivel !== 'laje') return naLaje(guardSegs); // o guarda-corpo é da laje
   const L = S.laje, out = [];
   const edges = [
     { ax: 'x', c: 0, fixed: 'y', len: L.w, p: t => [t, 0] },
@@ -360,21 +385,28 @@ function build(exp) {
     h += g;
   }
   // laje
-  h += `<rect x="0" y="0" width="${L.w}" height="${L.h}" fill="#fbefd9" stroke="#b07a2a" stroke-width="${1.5 * px}" stroke-dasharray="${8 * px} ${5 * px}"/>`;
+  const naLajeAgora = S.nivel === 'laje';
+  h += `<rect x="0" y="0" width="${L.w}" height="${L.h}" fill="${naLajeAgora ? '#fbefd9' : 'none'}" stroke="#b07a2a" stroke-width="${1.5 * px}" stroke-dasharray="${8 * px} ${5 * px}"/>`;
   h += `<text x="${L.w / 2}" y="${-fs * 2.6}" font-size="${fs}" text-anchor="middle" fill="#8a5a14">Laje ${fmt(L.w)} m</text>`;
   h += `<text x="${-fs * 2.6}" y="${L.h / 2}" font-size="${fs}" text-anchor="middle" fill="#8a5a14" transform="rotate(-90 ${-fs * 2.6} ${L.h / 2})">Laje ${fmt(L.h)} m</text>`;
 
   // varanda
-  if (S.varanda.on) {
+  if (S.varanda.on && naLajeAgora) {
     const vd = Math.min(S.varanda.d, L.h);
     h += `<rect x="0" y="${L.h - vd}" width="${L.w}" height="${vd}" fill="#e3eed6" stroke="none"/>`;
     h += `<text x="${L.w / 2}" y="${L.h - vd / 2}" font-size="${fs}" text-anchor="middle" dominant-baseline="central" fill="#4a6a2a">Varanda (${fmt(vd)} m)</text>`;
   }
-  if (S.varanda.gc) guardSegs().forEach(([a, b]) => { h += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#6b6b6b" stroke-width="0.05" stroke-dasharray="0.12 0.06"/>`; });
+  if (S.varanda.gc && naLajeAgora) guardSegs().forEach(([a, b]) => { h += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#6b6b6b" stroke-width="0.05" stroke-dasharray="0.12 0.06"/>`; });
 
   // imagem de fundo: só na tela (não entra no PNG). Fica por cima da laje e da varanda (que são opacas e a
   // esconderiam) e por baixo das paredes e do resto. pointer-events="none": o clique passa por ela.
   if (!exp && S.fundo.on && temFundo()) { const F = S.fundo; h += `<image href="${fundo.url}" x="${F.x}" y="${F.y}" width="${F.w}" height="${F.w * F.ar}" opacity="${F.op}" preserveAspectRatio="none" pointer-events="none"/>`; }
+  // paredes do outro andar, em cinza claro, só para referência (não recebem clique e não vão para o PNG).
+  // Na laje, mostram onde estão as paredes de baixo (é sobre elas que as de cima costumam apoiar).
+  if (!exp) S.outro.walls.forEach(w => {
+    const g = G(w), t = w.t;
+    h += `<polygon points="${pt(P(w, g, -t / 2, t / 2))} ${pt(P(w, g, g.L + t / 2, t / 2))} ${pt(P(w, g, g.L + t / 2, -t / 2))} ${pt(P(w, g, -t / 2, -t / 2))}" fill="#8a96a6" fill-opacity="0.35" pointer-events="none"/>`;
+  });
   // paredes
   S.walls.forEach(w => {
     const g = G(w), t = w.t, on = !exp && sel && sel.k === 'w' && sel.id === w.id;
@@ -502,7 +534,13 @@ function render() {
     calib: calib && calib.b ? 'Agora digite no painel a distância real entre os dois pontos.' : calib ? 'Toque no segundo ponto da medida que você conhece.' : 'Toque no primeiro ponto de uma medida que você conhece na imagem (por exemplo, a ponta de uma parede).'
   };
   hint.textContent = is3d ? (walk ? HINT_WALK : HINT_3D) : hints[mode];
+  const an = document.getElementById('andar');
+  an.style.display = is3d ? 'none' : 'flex';
+  document.getElementById('bLaje').classList.toggle('on', S.nivel === 'laje');
+  document.getElementById('bTerreo').classList.toggle('on', S.nivel === 'terreo');
 }
+document.getElementById('bLaje').onclick = () => trocaAndar('laje');
+document.getElementById('bTerreo').onclick = () => trocaAndar('terreo');
 
 /* ---------- painel ---------- */
 function fundoPainel() {
@@ -610,7 +648,7 @@ function renderPanel() {
     h += `<h3>Parede</h3>
       <label>Comprimento (m)</label><input id="pL" value="${fmt(g.L)}">
       <label>Espessura</label><select id="pT">${[0.1, 0.12, 0.15, 0.2, 0.25].map(v => `<option value="${v}" ${Math.abs(v - w.t) < 1e-6 ? 'selected' : ''}>${fmt(v)} m</option>`).join('')}</select>
-      <label>Altura desta parede (m) — vazio = padrão ${fmt(S.wallH)}</label><input id="pH" value="${w.hgt ? fmt(w.hgt) : ''}" placeholder="${fmt(S.wallH)}">
+      <label>Altura desta parede (m) — vazio = padrão ${fmt(hPad())}</label><input id="pH" value="${w.hgt ? fmt(w.hgt) : ''}" placeholder="${fmt(hPad())}">
       <p class="muted">Dica: arraste as bolinhas azuis para mudar as pontas. Arrastar a parede inteira leva junto as paredes ligadas a ela.</p>
       <div class="row"><button id="pDel" class="danger">Excluir parede</button></div>`;
   } else if (sel && sel.k === 'o' && O(sel.id)) {
@@ -645,7 +683,9 @@ function renderPanel() {
       <div class="row"><button id="sDel" class="danger">Excluir escada</button></div>`;
   } else {
     const tot = S.walls.reduce((s, w) => s + G(w).L, 0);
-    h += `<h3>Laje</h3>
+    if (S.nivel === 'terreo') h += `<h3>Térreo (casa de baixo)</h3>
+      <p class="muted">Você está desenhando a casa de baixo: paredes, portas, janelas e móveis dela. As paredes da laje aparecem em cinza para referência. A altura das paredes do térreo é a altura até a laje menos 12 cm de laje: ${fmt(hPad('terreo'))} m. O cálculo de materiais conta só a laje. Para voltar, toque em <b>⬆ Laje</b> no canto do desenho.</p>`;
+    h += `<h3${S.nivel === 'terreo' ? ' style="margin-top:18px"' : ''}>Laje</h3>
       <label>Largura (m)</label><input id="lW" value="${fmt(S.laje.w)}">
       <label>Comprimento (m)</label><input id="lH" value="${fmt(S.laje.h)}">
       <label>Altura das paredes (pé-direito) (m)</label><input id="lPH" value="${fmt(S.wallH)}">
@@ -671,7 +711,7 @@ function renderPanel() {
       <p class="muted">Aparece no 3D. A cor pinta a textura: para tijolo, escolha um tom de barro; para madeira, um marrom. O piso cobre o retângulo das paredes.</p>
       ${fundoPainel()}
       <h3 style="margin-top:18px">Resumo</h3>
-      <div class="sum">Paredes: ${S.walls.length} (${fmt(tot)} m no total)<br>Portas: ${S.ops.filter(o => o.type === 'door').length} · Janelas: ${S.ops.filter(o => o.type === 'window').length} · Escadas: ${S.stairs.length} · Móveis: ${S.furn.length}</div>
+      <div class="sum">${S.nivel === 'terreo' ? 'Térreo' : 'Laje'} — paredes: ${S.walls.length} (${fmt(tot)} m no total)<br>Portas: ${S.ops.filter(o => o.type === 'door').length} · Janelas: ${S.ops.filter(o => o.type === 'window').length} · Escadas: ${S.stairs.length} · Móveis: ${S.furn.length}</div>
       <h3 style="margin-top:18px">Como usar</h3>
       <ul class="muted">
         <li><b>Parede</b>: clique e arraste no desenho.</li>
@@ -738,10 +778,12 @@ function renderPanel() {
   });
 }
 
-function wallBox() {
-  if (!S.walls.length) return null;
+// Retângulo que envolve as paredes. Sem argumento, usa as paredes da laje (telhado, piso do 3D).
+function wallBox(ws) {
+  ws = ws || andar('laje').walls;
+  if (!ws.length) return null;
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-  S.walls.forEach(w => { x0 = Math.min(x0, w.x1, w.x2); y0 = Math.min(y0, w.y1, w.y2); x1 = Math.max(x1, w.x1, w.x2); y1 = Math.max(y1, w.y1, w.y2); });
+  ws.forEach(w => { x0 = Math.min(x0, w.x1, w.x2); y0 = Math.min(y0, w.y1, w.y2); x1 = Math.max(x1, w.x1, w.x2); y1 = Math.max(y1, w.y1, w.y2); });
   return { x0, y0, x1, y1 };
 }
 function roofInfo() {
@@ -992,7 +1034,7 @@ document.getElementById('file').onchange = e => {
   e.target.value = '';
 };
 document.getElementById('bReset').onclick = () => {
-  openModal(`<h3>Restaurar modelo?</h3><p class="muted">Volta para o cômodo 6,00 x 4,00 original. Dá para desfazer com “Desfazer”.</p><div class="row"><button id="rs" class="danger">Restaurar</button><button id="bl">Começar em branco</button></div>`);
+  openModal(`<h3>Restaurar modelo?</h3><p class="muted">Volta para o cômodo 6,00 x 4,00 original (o térreo fica vazio). Dá para desfazer com “Desfazer”.</p><div class="row"><button id="rs" class="danger">Restaurar</button><button id="bl">Começar em branco</button></div>`);
   document.getElementById('rs').onclick = () => { addBackup('Antes de restaurar o modelo'); push(); S = modelo(); sel = null; done(); fit(); modal.style.display = 'none'; };
   document.getElementById('bl').onclick = () => { addBackup('Antes de começar em branco'); push(); S = modelo(); S.walls = []; S.ops = []; S.stairs = []; S.furn = []; sel = null; done(); fit(); modal.style.display = 'none'; };
 };
@@ -1021,7 +1063,7 @@ function init3d() {
   v3d.appendChild(renderer.domElement);
   const ov = document.createElement('div');
   ov.style.cssText = 'position:absolute;top:10px;left:10px;max-width:calc(100% - 40px);display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:8px;padding:6px 8px;font-size:14px';
-  ov.innerHTML = '<span>Vista: <select id="v3m" style="font:inherit;padding:4px;border-radius:6px;border:1px solid #ccc;max-width:200px"><option value="full">Casa completa</option><option value="noroof">Sem telhado</option><option value="cut">Ver por dentro (paredes baixas)</option></select></span><button id="bWalk" style="padding:4px 10px">🚶 Caminhar</button>';
+  ov.innerHTML = '<span>Vista: <select id="v3m" style="font:inherit;padding:4px;border-radius:6px;border:1px solid #ccc;max-width:200px"><option value="full">Casa completa</option><option value="noroof">Sem telhado</option><option value="cut">Ver por dentro (paredes baixas)</option><option value="terreo">Só a casa de baixo</option></select></span><button id="bWalk" style="padding:4px 10px">🚶 Caminhar</button>';
   v3d.appendChild(ov);
   ov.querySelector('select').onchange = e => { v3dMode = e.target.value; render(); };
   ov.querySelector('#bWalk').onclick = () => walk ? walkStop() : walkStart();
@@ -1085,9 +1127,18 @@ const OLHO = 1.6, RAIO = 0.2, VEL = 1.4, GIRO = 1.6; // altura dos olhos (m), "l
 let walk = null;
 const anda = { f: 0, b: 0, l: 0, r: 0 }; // o que está apertado agora: frente, trás, virar à esquerda, à direita
 // O ponto (x, z) cabe uma pessoa? Não pode sair da laje nem encostar numa parede, a não ser no vão de uma porta.
+// Altura do piso onde a pessoa anda: caminha no andar que está sendo editado.
+const walkBase = () => S.nivel === 'terreo' ? -S.lajeH : 0;
+// Até onde dá para andar: na laje, até a beira dela; no térreo, a área da laje e das paredes de baixo, com 1 m de quintal.
+function limites() {
+  const L = S.laje; let x0 = 0, z0 = 0, x1 = L.w, z1 = L.h;
+  const b = S.nivel === 'terreo' && wallBox(S.walls);
+  if (b) { x0 = Math.min(x0, b.x0) - 1; z0 = Math.min(z0, b.y0) - 1; x1 = Math.max(x1, b.x1) + 1; z1 = Math.max(z1, b.y1) + 1; }
+  return { x0, z0, x1, z1 };
+}
 function livre(x, z) {
-  const L = S.laje;
-  if (x < RAIO || z < RAIO || x > L.w - RAIO || z > L.h - RAIO) return false;
+  const m = limites();
+  if (x < m.x0 + RAIO || z < m.z0 + RAIO || x > m.x1 - RAIO || z > m.z1 - RAIO) return false;
   for (const w of S.walls) {
     const q = G(w), dx = x - w.x1, dz = z - w.y1;
     const s = dx * q.ux + dz * q.uy;          // quanto andou ao longo da parede, a partir do início dela
@@ -1111,16 +1162,16 @@ function walkUI() {
   hint.textContent = walk ? HINT_WALK : HINT_3D;
 }
 function walkStart() {
-  const b = wallBox(), L = S.laje;
+  const b = wallBox(S.walls), L = S.laje, m = limites();
   let cx = b ? (b.x0 + b.x1) / 2 : L.w / 2, cz = b ? (b.y0 + b.y1) / 2 : L.h / 2;
   if (!livre(cx, cz)) { // o centro não cabe: procura o ponto livre mais perto dele
     let best = null;
-    for (let x = RAIO; x <= L.w - RAIO; x += 0.1) for (let z = RAIO; z <= L.h - RAIO; z += 0.1)
+    for (let x = m.x0 + RAIO; x <= m.x1 - RAIO; x += 0.1) for (let z = m.z0 + RAIO; z <= m.z1 - RAIO; z += 0.1)
       if (livre(x, z)) { const d = (x - cx) ** 2 + (z - cz) ** 2; if (!best || d < best[2]) best = [x, z, d]; }
     if (best) { cx = best[0]; cz = best[1]; }
   }
   walk = { x: cx, z: cz, yaw: 0, pitch: 0 }; // yaw 0 = olhando para a frente da planta (lado da varanda)
-  if (v3dMode === 'cut') { v3dMode = 'noroof'; document.getElementById('v3m').value = 'noroof'; } // paredes baixas não fazem sentido andando
+  if (v3dMode === 'cut' || (v3dMode === 'terreo' && S.nivel === 'laje')) { v3dMode = 'noroof'; document.getElementById('v3m').value = 'noroof'; } // paredes baixas não fazem sentido andando
   T3.camera.fov = 65; T3.camera.updateProjectionMatrix(); // ângulo mais aberto, como o olho dentro de um cômodo
   walkUI(); render();
 }
@@ -1157,7 +1208,9 @@ function pick3d(e) {
   const m = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   const rc = new THREE.Raycaster(); rc.setFromCamera(m, T3.camera);
   const hit = rc.intersectObjects(T3.group.children, true).find(h => h.object.userData.k);
-  sel = hit ? { k: hit.object.userData.k, id: hit.object.userData.id } : null;
+  const ud = hit && hit.object.userData;
+  if (ud && ud.andar && ud.andar !== S.nivel) { if (walk) return; trocaAndar(ud.andar); } // item do outro andar: passa a editar aquele andar (caminhando, não troca)
+  sel = ud ? { k: ud.k, id: ud.id } : null;
   render(); renderPanel();
 }
 // Texturas do acabamento. Cada uma é desenhada num canvas de 512 px que vale 1,2 m de parede ou piso.
@@ -1243,49 +1296,75 @@ function build3d() {
     const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = ry || 0; if (ud) m.userData = ud; g.add(m);
     if (!op) { const ed = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x6b6b6b })); ed.position.copy(m.position); ed.rotation.copy(m.rotation); g.add(ed); }
   };
-  const L = S.laje, H0 = S.lajeH;
-  box(L.w, 0.12, L.h, 0xe2c99a, L.w / 2, -0.06, L.h / 2);
-  if (S.showDown) box(L.w, H0 - 0.12, L.h, 0x8d96a0, L.w / 2, -0.12 - (H0 - 0.12) / 2, L.h / 2, 0, null, 0.18);
+  const L = S.laje, H0 = S.lajeH, A = S.acab;
+  const soBaixo = v3dMode === 'terreo', baixo = andar('terreo'), temBaixo = baixo.walls.length > 0;
   const grid = new THREE.GridHelper(40, 40, 0xb9bec4, 0xd5d9de); grid.position.set(L.w / 2, -H0, L.h / 2); g.add(grid);
-  const A = S.acab;
-  // piso: uma placa de 1 cm sobre a laje, cobrindo o retângulo que envolve as paredes
-  const wp = wallBox();
-  if (wp && wp.x1 - wp.x0 > 0.05 && wp.y1 - wp.y0 > 0.05) {
-    const cx = (wp.x0 + wp.x1) / 2, cz = (wp.y0 + wp.y1) / 2;
-    box(wp.x1 - wp.x0, 0.01, wp.y1 - wp.y0, A.piso, cx, 0.005, cz, 0, null, 0, { tipo: A.pisoTex, o: [cx, 0.005, cz] });
-  }
-
-  S.walls.forEach(w => {
-    const q = G(w), t = w.t, H = w.hgt || S.wallH, ry = -Math.atan2(q.uy, q.ux);
-    const on = sel && sel.k === 'w' && sel.id === w.id, col = on ? 0x6b8ff0 : A.parede, ud = { k: 'w', id: w.id };
-    const seg = (a, b, y0, y1, c, d, u, op) => {
-      const cap = v3dMode === 'cut' ? 1.2 : 1e9; if (y0 >= cap) return; y1 = Math.min(y1, cap);
-      const ea = a <= 1e-4 ? -t / 2 : a, eb = b >= q.L - 1e-4 ? q.L + t / 2 : b, p = P(w, q, (ea + eb) / 2);
-      // só os pedaços da própria parede levam a textura (porta e janela não); selecionada fica azul lisa
-      const tx = u === ud && !on ? { tipo: A.paredeTex, o: [(ea + eb) / 2, (y0 + y1) / 2, 0] } : null;
-      box(eb - ea, y1 - y0, d || t, c, p[0], (y0 + y1) / 2, p[1], ry, u, op, tx);
-    };
-    const ops = S.ops.filter(o => o.wall === w.id).sort((a, b) => a.pos - b.pos);
-    let cur = 0;
-    ops.forEach(o => {
-      const a = o.pos - o.w / 2, b = o.pos + o.w / 2, oon = sel && sel.k === 'o' && sel.id === o.id, ou = { k: 'o', id: o.id };
-      if (a > cur) seg(cur, a, 0, H, col, 0, ud);
-      cur = Math.max(cur, b);
-      if (o.type === 'door') {
-        const dh = Math.min(o.h, H);
-        seg(a, b, dh, H, col, 0, ud);
-        seg(a, b, 0, dh, oon ? 0x1d4ed8 : 0x9a6b3f, 0.04, ou, walk ? 0.35 : 0); // caminhando, a porta fica transparente: dá para ver o outro lado ao passar
-      } else {
-        const s0 = Math.min(o.sill, H), s1 = Math.min(o.sill + o.h, H);
-        seg(a, b, 0, s0, col, 0, ud);
-        seg(a, b, s1, H, col, 0, ud);
-        seg(a, b, s0, s1, oon ? 0x1d4ed8 : 0x7fb8e0, 0.03, ou, 0.5);
+  // Desenha as paredes (com portas e janelas) e os móveis de um andar.
+  // ad = { walls, ops, furn } do andar; base = altura do piso desse andar (laje = 0, térreo = -altura até a laje);
+  // Hpad = altura padrão das paredes. Só a laje tem acabamento escolhido e platibanda.
+  const desenhaAndar = (ad, nivel, base, Hpad) => {
+    const cima = nivel === 'laje';
+    ad.walls.forEach(w => {
+      const q = G(w), t = w.t, H = w.hgt || Hpad, ry = -Math.atan2(q.uy, q.ux);
+      const on = sel && sel.k === 'w' && sel.id === w.id, col = on ? 0x6b8ff0 : (cima ? A.parede : 0xefe9de), ud = { k: 'w', id: w.id, andar: nivel };
+      const seg = (a, b, y0, y1, c, d, u, op) => {
+        const cap = v3dMode === 'cut' ? 1.2 : 1e9; if (y0 >= cap) return; y1 = Math.min(y1, cap); // y0, y1: altura a partir do piso deste andar
+        const ea = a <= 1e-4 ? -t / 2 : a, eb = b >= q.L - 1e-4 ? q.L + t / 2 : b, p = P(w, q, (ea + eb) / 2);
+        // só os pedaços da própria parede levam a textura (porta e janela não); selecionada fica azul lisa
+        const tx = cima && u === ud && !on ? { tipo: A.paredeTex, o: [(ea + eb) / 2, (y0 + y1) / 2, 0] } : null;
+        box(eb - ea, y1 - y0, d || t, c, p[0], base + (y0 + y1) / 2, p[1], ry, u, op, tx);
+      };
+      const ops = ad.ops.filter(o => o.wall === w.id).sort((a, b) => a.pos - b.pos);
+      let cur = 0;
+      ops.forEach(o => {
+        const a = o.pos - o.w / 2, b = o.pos + o.w / 2, oon = sel && sel.k === 'o' && sel.id === o.id, ou = { k: 'o', id: o.id, andar: nivel };
+        if (a > cur) seg(cur, a, 0, H, col, 0, ud);
+        cur = Math.max(cur, b);
+        if (o.type === 'door') {
+          const dh = Math.min(o.h, H);
+          seg(a, b, dh, H, col, 0, ud);
+          seg(a, b, 0, dh, oon ? 0x1d4ed8 : 0x9a6b3f, 0.04, ou, walk ? 0.35 : 0); // caminhando, a porta fica transparente: dá para ver o outro lado ao passar
+        } else {
+          const s0 = Math.min(o.sill, H), s1 = Math.min(o.sill + o.h, H);
+          seg(a, b, 0, s0, col, 0, ud);
+          seg(a, b, s1, H, col, 0, ud);
+          seg(a, b, s0, s1, oon ? 0x1d4ed8 : 0x7fb8e0, 0.03, ou, 0.5);
+        }
+      });
+      if (cur < q.L) seg(cur, q.L, 0, H, col, 0, ud);
+      if (cima && S.roof.on && v3dMode === 'full') seg(0, q.L, H, H + S.roof.plat, col, 0, ud);
+    });
+    ad.furn.forEach(f => {
+      const on = sel && sel.k === 'f' && sel.id === f.id, ud = { k: 'f', id: f.id, andar: nivel }, hw = f.w / 2, hd = f.d / 2;
+      const grp = new THREE.Group(); grp.position.set(f.x, base, f.y); grp.rotation.y = -f.rot * Math.PI / 180; g.add(grp);
+      const bx = (w, y0, y1, d, x, z, c) => { if (w <= 0 || d <= 0 || y1 <= y0) return; const mm = new THREE.Mesh(new THREE.BoxGeometry(w, y1 - y0, d), new THREE.MeshLambertMaterial({ color: on ? 0x6b8ff0 : c })); mm.position.set(x, (y0 + y1) / 2, z); mm.userData = ud; grp.add(mm); };
+      if (f.type === 'mesa') {
+        bx(f.w, 0.72, 0.75, f.d, 0, 0, 0xb58b5a);
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([i, j]) => bx(0.05, 0, 0.72, 0.05, i * (hw - 0.05), j * (hd - 0.05), 0x444444));
+        bx(0.06, 0.75, 0.85, 0.06, 0, -hd + 0.12, 0x222222); bx(0.62, 0.85, 1.2, 0.03, 0, -hd + 0.12, 0x151515);
+        bx(0.44, 0.75, 0.77, 0.14, 0, 0.05, 0x333333); bx(0.2, 0, 0.45, 0.42, hw - 0.18, -hd + 0.26, 0x2a2a2a);
+      } else if (f.type === 'cadeira') {
+        bx(0.5, 0, 0.04, 0.5, 0, 0.03, 0x555555); bx(0.06, 0.04, 0.42, 0.06, 0, 0.03, 0x555555);
+        bx(f.w - 0.12, 0.42, 0.5, f.d - 0.14, 0, 0.04, 0x2f2f2f); bx(f.w - 0.16, 0.5, 1.05, 0.07, 0, -hd + 0.06, 0x2f2f2f);
+      } else if (f.type === 'sofa') {
+        bx(f.w, 0.08, 0.42, f.d, 0, 0, 0x6a7a8c); bx(f.w, 0.42, 0.85, 0.2, 0, -hd + 0.1, 0x5b6b7d);
+        bx(0.18, 0.42, 0.62, f.d, -hw + 0.09, 0, 0x5b6b7d); bx(0.18, 0.42, 0.62, f.d, hw - 0.09, 0, 0x5b6b7d);
+      } else if (f.type === 'tv') {
+        bx(f.w, 0, 0.5, f.d, 0, 0, 0x7a5a3c); bx(0.3, 0.5, 0.56, 0.18, 0, -hd + 0.12, 0x222222);
+        bx(Math.min(1.23, f.w - 0.1), 0.56, 1.28, 0.05, 0, -hd + 0.1, 0x111111);
+      } else if (f.type === 'estante') {
+        bx(f.w, 0, 1.8, f.d, 0, 0, 0xa07850); [0.45, 0.9, 1.35].forEach(y => bx(f.w + 0.01, y - 0.015, y + 0.015, f.d + 0.01, 0, 0, 0x7d5c3b));
+      } else if (f.type === 'planta') {
+        bx(0.28, 0, 0.35, 0.28, 0, 0, 0x9c6b4a);
+        const sp = new THREE.Mesh(new THREE.SphereGeometry(Math.min(hw, hd) * 0.9, 12, 10), new THREE.MeshLambertMaterial({ color: on ? 0x6b8ff0 : 0x5f9e45 })); sp.position.set(0, 0.62, 0); sp.userData = ud; grp.add(sp);
       }
     });
-    if (cur < q.L) seg(cur, q.L, 0, H, col, 0, ud);
-    if (S.roof.on && v3dMode === 'full') seg(0, q.L, H, H + S.roof.plat, col, 0, ud);
-  });
-
+  };
+  // laje (a placa de concreto); na vista "só a casa de baixo" ela some para dar para ver o térreo de cima
+  if (!soBaixo) box(L.w, LAJE_E, L.h, 0xe2c99a, L.w / 2, -LAJE_E / 2, L.h / 2);
+  // casa de baixo: desenhada de verdade quando o térreo tem paredes; senão, a caixa transparente de antes
+  if (temBaixo && (S.showDown || soBaixo)) desenhaAndar(baixo, 'terreo', -H0, hPad('terreo'));
+  else if (S.showDown && !soBaixo) box(L.w, H0 - LAJE_E, L.h, 0x8d96a0, L.w / 2, -LAJE_E - (H0 - LAJE_E) / 2, L.h / 2, 0, null, 0.18);
   S.stairs.forEach(s => {
     const on = sel && sel.k === 's' && sel.id === s.id, r = s.rot * Math.PI / 180, d = s.l / s.n;
     for (let i = 0; i < s.n; i++) {
@@ -1294,57 +1373,40 @@ function build3d() {
       box(s.w, hh, d, on ? 0x6b8ff0 : 0xbfb6a8, x, -H0 + hh / 2, z, -r, { k: 's', id: s.id });
     }
   });
-  // varanda
-  if (S.varanda.on) { const vd = Math.min(S.varanda.d, L.h); box(L.w, 0.012, vd, 0xc9d8b4, L.w / 2, 0.006, L.h - vd / 2); }
-  if (S.varanda.gc) guardSegs().forEach(([a, b]) => {
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]), ry = -Math.atan2(b[1] - a[1], b[0] - a[0]), cx = (a[0] + b[0]) / 2, cz = (a[1] + b[1]) / 2, gh = S.varanda.gcH;
-    box(len, 0.05, 0.05, 0x555555, cx, gh - 0.025, cz, ry);
-    box(len, gh - 0.1, 0.02, 0x9fc4dd, cx, (gh - 0.05) / 2 + 0.02, cz, ry, null, 0.3);
-    const n = Math.max(1, Math.round(len / 1.2));
-    for (let i = 0; i <= n; i++) { const t = i / n; box(0.04, gh, 0.04, 0x555555, a[0] + (b[0] - a[0]) * t, gh / 2, a[1] + (b[1] - a[1]) * t, ry); }
-  });
-  // telhado embutido
-  const wb = wallBox();
-  if (S.roof.on && wb && v3dMode === 'full') {
-    const tIn = 0.08, x0 = wb.x0 + tIn, x1 = wb.x1 - tIn, z0 = wb.y0 + tIn, z1 = wb.y1 - tIn, a = Math.atan(S.roof.caim / 100);
-    const front = S.roof.dir === 'frente' || S.roof.dir === 'fundo', span = front ? z1 - z0 : x1 - x0, rise = span * S.roof.caim / 100, H = S.wallH;
-    const geo = new THREE.BoxGeometry(front ? x1 - x0 : span / Math.cos(a), 0.04, front ? span / Math.cos(a) : z1 - z0);
-    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xa4a9ad }));
-    m.position.set((x0 + x1) / 2, H + 0.1 + rise / 2, (z0 + z1) / 2);
-    if (S.roof.dir === 'frente') m.rotation.x = a; else if (S.roof.dir === 'fundo') m.rotation.x = -a; else if (S.roof.dir === 'direita') m.rotation.z = -a; else m.rotation.z = a;
-    g.add(m);
-    const cy = H + 0.08;
-    if (S.roof.dir === 'frente') box(x1 - x0, 0.1, 0.15, 0x7d7d7d, (x0 + x1) / 2, cy, z1 - 0.08);
-    else if (S.roof.dir === 'fundo') box(x1 - x0, 0.1, 0.15, 0x7d7d7d, (x0 + x1) / 2, cy, z0 + 0.08);
-    else if (S.roof.dir === 'direita') box(0.15, 0.1, z1 - z0, 0x7d7d7d, x1 - 0.08, cy, (z0 + z1) / 2);
-    else box(0.15, 0.1, z1 - z0, 0x7d7d7d, x0 + 0.08, cy, (z0 + z1) / 2);
-  }
-  // móveis
-  S.furn.forEach(f => {
-    const on = sel && sel.k === 'f' && sel.id === f.id, ud = { k: 'f', id: f.id }, hw = f.w / 2, hd = f.d / 2;
-    const grp = new THREE.Group(); grp.position.set(f.x, 0, f.y); grp.rotation.y = -f.rot * Math.PI / 180; g.add(grp);
-    const bx = (w, y0, y1, d, x, z, c) => { if (w <= 0 || d <= 0 || y1 <= y0) return; const mm = new THREE.Mesh(new THREE.BoxGeometry(w, y1 - y0, d), new THREE.MeshLambertMaterial({ color: on ? 0x6b8ff0 : c })); mm.position.set(x, (y0 + y1) / 2, z); mm.userData = ud; grp.add(mm); };
-    if (f.type === 'mesa') {
-      bx(f.w, 0.72, 0.75, f.d, 0, 0, 0xb58b5a);
-      [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([i, j]) => bx(0.05, 0, 0.72, 0.05, i * (hw - 0.05), j * (hd - 0.05), 0x444444));
-      bx(0.06, 0.75, 0.85, 0.06, 0, -hd + 0.12, 0x222222); bx(0.62, 0.85, 1.2, 0.03, 0, -hd + 0.12, 0x151515);
-      bx(0.44, 0.75, 0.77, 0.14, 0, 0.05, 0x333333); bx(0.2, 0, 0.45, 0.42, hw - 0.18, -hd + 0.26, 0x2a2a2a);
-    } else if (f.type === 'cadeira') {
-      bx(0.5, 0, 0.04, 0.5, 0, 0.03, 0x555555); bx(0.06, 0.04, 0.42, 0.06, 0, 0.03, 0x555555);
-      bx(f.w - 0.12, 0.42, 0.5, f.d - 0.14, 0, 0.04, 0x2f2f2f); bx(f.w - 0.16, 0.5, 1.05, 0.07, 0, -hd + 0.06, 0x2f2f2f);
-    } else if (f.type === 'sofa') {
-      bx(f.w, 0.08, 0.42, f.d, 0, 0, 0x6a7a8c); bx(f.w, 0.42, 0.85, 0.2, 0, -hd + 0.1, 0x5b6b7d);
-      bx(0.18, 0.42, 0.62, f.d, -hw + 0.09, 0, 0x5b6b7d); bx(0.18, 0.42, 0.62, f.d, hw - 0.09, 0, 0x5b6b7d);
-    } else if (f.type === 'tv') {
-      bx(f.w, 0, 0.5, f.d, 0, 0, 0x7a5a3c); bx(0.3, 0.5, 0.56, 0.18, 0, -hd + 0.12, 0x222222);
-      bx(Math.min(1.23, f.w - 0.1), 0.56, 1.28, 0.05, 0, -hd + 0.1, 0x111111);
-    } else if (f.type === 'estante') {
-      bx(f.w, 0, 1.8, f.d, 0, 0, 0xa07850); [0.45, 0.9, 1.35].forEach(y => bx(f.w + 0.01, y - 0.015, y + 0.015, f.d + 0.01, 0, 0, 0x7d5c3b));
-    } else if (f.type === 'planta') {
-      bx(0.28, 0, 0.35, 0.28, 0, 0, 0x9c6b4a);
-      const sp = new THREE.Mesh(new THREE.SphereGeometry(Math.min(hw, hd) * 0.9, 12, 10), new THREE.MeshLambertMaterial({ color: on ? 0x6b8ff0 : 0x5f9e45 })); sp.position.set(0, 0.62, 0); sp.userData = ud; grp.add(sp);
+  if (!soBaixo) {
+    // piso: uma placa de 1 cm sobre a laje, cobrindo o retângulo que envolve as paredes
+    const wp = wallBox();
+    if (wp && wp.x1 - wp.x0 > 0.05 && wp.y1 - wp.y0 > 0.05) {
+      const cx = (wp.x0 + wp.x1) / 2, cz = (wp.y0 + wp.y1) / 2;
+      box(wp.x1 - wp.x0, 0.01, wp.y1 - wp.y0, A.piso, cx, 0.005, cz, 0, null, 0, { tipo: A.pisoTex, o: [cx, 0.005, cz] });
     }
-  });
+    desenhaAndar(andar('laje'), 'laje', 0, S.wallH);
+    // varanda
+    if (S.varanda.on) { const vd = Math.min(S.varanda.d, L.h); box(L.w, 0.012, vd, 0xc9d8b4, L.w / 2, 0.006, L.h - vd / 2); }
+    if (S.varanda.gc) guardSegs().forEach(([a, b]) => {
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]), ry = -Math.atan2(b[1] - a[1], b[0] - a[0]), cx = (a[0] + b[0]) / 2, cz = (a[1] + b[1]) / 2, gh = S.varanda.gcH;
+      box(len, 0.05, 0.05, 0x555555, cx, gh - 0.025, cz, ry);
+      box(len, gh - 0.1, 0.02, 0x9fc4dd, cx, (gh - 0.05) / 2 + 0.02, cz, ry, null, 0.3);
+      const n = Math.max(1, Math.round(len / 1.2));
+      for (let i = 0; i <= n; i++) { const t = i / n; box(0.04, gh, 0.04, 0x555555, a[0] + (b[0] - a[0]) * t, gh / 2, a[1] + (b[1] - a[1]) * t, ry); }
+    });
+    // telhado embutido
+    const wb = wallBox();
+    if (S.roof.on && wb && v3dMode === 'full') {
+      const tIn = 0.08, x0 = wb.x0 + tIn, x1 = wb.x1 - tIn, z0 = wb.y0 + tIn, z1 = wb.y1 - tIn, a = Math.atan(S.roof.caim / 100);
+      const front = S.roof.dir === 'frente' || S.roof.dir === 'fundo', span = front ? z1 - z0 : x1 - x0, rise = span * S.roof.caim / 100, H = S.wallH;
+      const geo = new THREE.BoxGeometry(front ? x1 - x0 : span / Math.cos(a), 0.04, front ? span / Math.cos(a) : z1 - z0);
+      const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xa4a9ad }));
+      m.position.set((x0 + x1) / 2, H + 0.1 + rise / 2, (z0 + z1) / 2);
+      if (S.roof.dir === 'frente') m.rotation.x = a; else if (S.roof.dir === 'fundo') m.rotation.x = -a; else if (S.roof.dir === 'direita') m.rotation.z = -a; else m.rotation.z = a;
+      g.add(m);
+      const cy = H + 0.08;
+      if (S.roof.dir === 'frente') box(x1 - x0, 0.1, 0.15, 0x7d7d7d, (x0 + x1) / 2, cy, z1 - 0.08);
+      else if (S.roof.dir === 'fundo') box(x1 - x0, 0.1, 0.15, 0x7d7d7d, (x0 + x1) / 2, cy, z0 + 0.08);
+      else if (S.roof.dir === 'direita') box(0.15, 0.1, z1 - z0, 0x7d7d7d, x1 - 0.08, cy, (z0 + z1) / 2);
+      else box(0.15, 0.1, z1 - z0, 0x7d7d7d, x0 + 0.08, cy, (z0 + z1) / 2);
+    }
+  }
   sc.add(g);
 }
 function draw3d() {
@@ -1355,8 +1417,9 @@ function draw3d() {
   const o = T3.orb;
   if (walk) { // olho da pessoa: posição + direção (yaw na horizontal, pitch para cima/baixo)
     const c = Math.cos(walk.pitch);
-    T3.camera.position.set(walk.x, OLHO, walk.z);
-    T3.camera.lookAt(walk.x + Math.sin(walk.yaw) * c, OLHO + Math.sin(walk.pitch), walk.z + Math.cos(walk.yaw) * c);
+    const y = walkBase() + OLHO;
+    T3.camera.position.set(walk.x, y, walk.z);
+    T3.camera.lookAt(walk.x + Math.sin(walk.yaw) * c, y + Math.sin(walk.pitch), walk.z + Math.cos(walk.yaw) * c);
   } else {
     T3.camera.position.set(o.t.x + o.r * Math.sin(o.ph) * Math.cos(o.th), o.t.y + o.r * Math.cos(o.ph), o.t.z + o.r * Math.sin(o.ph) * Math.sin(o.th));
     T3.camera.lookAt(o.t);
@@ -1373,6 +1436,7 @@ const BLOCOS = {
   'outro': ['Outro (digitar medidas)', 0, 0, 0]
 };
 function calcMat() {
+  if (S.nivel !== 'laje') return naLaje(calcMat); // materiais: só as paredes da laje (a obra); o térreo já existe
   const m = S.mat; let bruto = 0, abert = 0;
   const lin = S.walls.map((w, i) => { const H = (w.hgt || S.wallH) + (S.roof.on ? S.roof.plat : 0), L = G(w).L; bruto += L * H; return { i: i + 1, L, H }; });
   S.ops.forEach(o => { const w = W(o.wall); if (!w) return; const H = w.hgt || S.wallH; const top = o.type === 'door' ? Math.min(o.h, H) : Math.max(0, Math.min(o.sill + o.h, H) - Math.min(o.sill, H)); abert += o.w * top; });
