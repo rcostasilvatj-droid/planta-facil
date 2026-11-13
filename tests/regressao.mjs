@@ -433,6 +433,92 @@ async function espacoCheio(browser, url, nome, opcoes) {
   await ctx2.close();
 }
 
+// Item 6: cor e textura de parede e piso no 3D.
+// Olha a média de cor e a variação dos pixels do 3D em volta de um ponto do piso (vista de cima).
+async function amostra3d(page, x, z, raio = 14) {
+  return page.evaluate(([x, z, raio]) => {
+    draw3d();
+    const cv = T3.renderer.domElement, v = new THREE.Vector3(x, 0.02, z).project(T3.camera);
+    const px = Math.round((v.x + 1) / 2 * cv.width), py = Math.round((1 - v.y) / 2 * cv.height);
+    const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height;
+    const g = c.getContext('2d'); g.drawImage(cv, 0, 0);
+    const d = g.getImageData(px - raio, py - raio, raio * 2, raio * 2).data;
+    let s = [0, 0, 0], n = d.length / 4, lum = [];
+    for (let i = 0; i < d.length; i += 4) { s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; lum.push((d[i] + d[i + 1] + d[i + 2]) / 3); }
+    const m = lum.reduce((a, b) => a + b, 0) / n, dp = Math.sqrt(lum.reduce((a, b) => a + (b - m) ** 2, 0) / n);
+    return { r: s[0] / n, g: s[1] / n, b: s[2] / n, dp };
+  }, [x, z, raio]);
+}
+async function acabamento(browser, url, nome, opcoes) {
+  telaAtual = nome;
+  console.log(`\n=== ${nome}: cores e texturas no 3D ===`);
+  const ctx = await browser.newContext(opcoes), page = await ctx.newPage();
+  const erros = []; page.on('pageerror', e => erros.push(e.message));
+  await abre(page, url);
+
+  // projeto antigo (sem acabamento) e projeto com valores estranhos: o norm() completa e limpa
+  const velho = await page.evaluate(() => { const x = JSON.parse(JSON.stringify(S)); delete x.acab; return JSON.stringify(norm(x).acab) === JSON.stringify(acabDef()) ? 'ok ' + JSON.stringify(x.acab) : JSON.stringify(x.acab); });
+  confere('projeto antigo recebe o acabamento padrão (aparência de antes)', velho.startsWith('ok '), velho);
+  const ruim = await page.evaluate(() => { const x = JSON.parse(JSON.stringify(S)); x.acab = { parede: '"><img src=x onerror=alert(1)>', paredeTex: 'xyz', piso: 'red', pisoTex: 'madeira' }; return norm(x).acab; });
+  confere('valores estranhos num projeto importado são trocados pelo padrão', ruim.parede === '#efe9de' && ruim.paredeTex === 'liso' && ruim.piso === '#e2c99a' && ruim.pisoTex === 'madeira', JSON.stringify(ruim));
+
+  // sem móveis, para o piso ficar livre na vista de cima
+  await page.evaluate(() => { push(); S.furn = []; sel = null; done(); });
+  await topo(page, '#b3d');
+  await page.waitForFunction(() => is3d && T3 && T3.group, null, { timeout: 8000 });
+  await page.locator('#v3m').selectOption('noroof');
+  const deCima = () => page.evaluate(() => { const b = wallBox(); T3.orb.t.set((b.x0 + b.x1) / 2, 0, (b.y0 + b.y1) / 2); T3.orb.ph = 0.15; T3.orb.th = 0.9; T3.orb.r = 9; draw3d(); return b; });
+  const b = await deCima(), px = b.x0 + (b.x1 - b.x0) * 0.35, pz = b.y0 + (b.y1 - b.y0) * 0.4;
+  const liso = await amostra3d(page, px, pz);
+
+  // escolhe pelo painel (com o 3D aberto): parede tijolo de barro, piso de madeira marrom
+  const aFc = page.locator('#aFc');
+  confere('painel mostra os campos de cor e textura', (await aFc.count()) === 1 && (await page.locator('#aPt').count()) === 1);
+  await page.locator('#aPt').selectOption('tijolo');
+  await page.locator('#aPc').fill('#b5562f');
+  await page.locator('#aFt').selectOption('madeira');
+  await aFc.fill('#8b5a2b');
+  await deCima();
+  const mad = await amostra3d(page, px, pz);
+  confere('piso de madeira aparece marrom no 3D', mad.r > mad.g + 15 && mad.g > mad.b + 5, `rgb ${mad.r.toFixed(0)},${mad.g.toFixed(0)},${mad.b.toFixed(0)}`);
+  confere('textura de madeira aparece (pixels variam mais que o piso liso)', mad.dp > liso.dp + 3, `variação ${liso.dp.toFixed(1)} → ${mad.dp.toFixed(1)}`);
+  const m = await page.evaluate(() => {
+    const ms = []; T3.group.traverse(o => { if (o.isMesh && o.userData.k === 'w') ms.push(o.material); });
+    return { n: ms.length, tex: ms.filter(x => x.map).length, cor: ms[0] && '#' + ms[0].color.getHexString() };
+  });
+  confere('paredes do 3D com textura de tijolo e a cor escolhida', m.n > 0 && m.tex === m.n && m.cor === '#b5562f', `${m.tex}/${m.n} ${m.cor}`);
+  await page.evaluate(() => { T3.orb.ph = 1.05; T3.orb.th = 1.2; T3.orb.r = 11; draw3d(); });
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-7-acabamento.png`) });
+
+  // parede selecionada continua azul e lisa (para ver o que está selecionado)
+  const azul = await page.evaluate(() => { sel = { k: 'w', id: S.walls[0].id }; render(); let r = null; T3.group.traverse(o => { if (o.isMesh && o.userData.k === 'w' && o.userData.id === sel.id) r = { map: !!o.material.map, cor: o.material.color.getHex() }; }); sel = null; render(); renderPanel(); return r; });
+  confere('parede selecionada fica azul, sem textura', azul && !azul.map && azul.cor === 0x6b8ff0, JSON.stringify(azul));
+
+  // salva, desfaz e refaz
+  const salvo = await page.evaluate(() => JSON.parse(localStorage.getItem(KEY)).acab);
+  confere('acabamento fica salvo no projeto', salvo.paredeTex === 'tijolo' && salvo.parede === '#b5562f' && salvo.pisoTex === 'madeira' && salvo.piso === '#8b5a2b', JSON.stringify(salvo));
+  await page.evaluate(() => undo());
+  const desf = await page.evaluate(() => S.acab);
+  await page.evaluate(() => redo());
+  const ref = await page.evaluate(() => S.acab);
+  confere('desfazer volta a cor anterior do piso; refazer reaplica', desf.piso === '#e2c99a' && desf.pisoTex === 'madeira' && ref.piso === '#8b5a2b', `${desf.piso} → ${ref.piso}`);
+  await page.reload(); await page.waitForSelector('#splash', { state: 'detached', timeout: 10000 });
+  const rec = await page.evaluate(() => S.acab);
+  confere('acabamento continua depois de recarregar', rec.paredeTex === 'tijolo' && rec.piso === '#8b5a2b', JSON.stringify(rec));
+
+  // todas as texturas são geradas sem erro
+  await topo(page, '#b3d');
+  await page.waitForFunction(() => is3d && T3 && T3.group, null, { timeout: 8000 });
+  const todas = await page.evaluate(() => {
+    const out = [];
+    for (const pt of Object.keys(TEX_PAREDE)) for (const ft of Object.keys(TEX_PISO)) { S.acab.paredeTex = pt; S.acab.pisoTex = ft; render(); out.push(pt + '/' + ft); }
+    return out.length;
+  });
+  confere('todas as combinações de textura desenham no 3D', todas === 16, todas + ' combinações');
+  confere('sem erros de JavaScript (acabamento)', erros.length === 0, erros.join(' | '));
+  await ctx.close();
+}
+
 async function offline(r, srv, url) {
   const { ctx, page } = r;
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -464,6 +550,7 @@ for (const [nome, op] of Object.entries(TELAS)) {
   try {
     const r = await roteiro(browser, url, nome, op);
     await espacoCheio(browser, url, nome, op);
+    await acabamento(browser, url, nome, op);
     await offline(r, srv, url);
     await r.ctx.close();
   } catch (e) { confere('roteiro terminou sem travar', false, e.message.split('\n')[0]); }

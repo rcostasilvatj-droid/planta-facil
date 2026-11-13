@@ -146,6 +146,18 @@ function matDef() { return { tipo: '9x19x19', bw: 19, bh: 19, bt: 9, j: 1, perda
 // Ela só aparece se o id for o mesmo de S.fundo.id. Assim a imagem não pesa nos backups nem no
 // desfazer, e um projeto aberto de outro aparelho não mostra a imagem de outro projeto.
 function fundoDef() { return { id: null, on: true, x: 0, y: 0, w: 10, ar: 1, op: 0.5 }; }
+// Acabamento do 3D: cor e textura das paredes e do piso. O padrão é "liso" com as cores de antes,
+// então projetos antigos aparecem iguais. As texturas são desenhadas pelo próprio app (sem arquivos de imagem).
+const TEX_PAREDE = { liso: 'Liso (pintura)', reboco: 'Reboco / textura', tijolo: 'Tijolo aparente', azulejo: 'Azulejo 15x15' };
+const TEX_PISO = { liso: 'Liso', ceramica: 'Cerâmica 60x60', madeira: 'Madeira (tábuas)', cimento: 'Cimento queimado' };
+function acabDef() { return { parede: '#efe9de', paredeTex: 'liso', piso: '#e2c99a', pisoTex: 'liso' }; }
+// Confere os valores (um projeto importado pode trazer qualquer texto): cor só no formato #rrggbb e textura só da lista.
+function acabNorm(a) {
+  const d = acabDef(), r = Object.assign(acabDef(), a || {}), cor = c => /^#[0-9a-f]{6}$/i.test(c);
+  if (!cor(r.parede)) r.parede = d.parede; if (!cor(r.piso)) r.piso = d.piso;
+  if (!TEX_PAREDE[r.paredeTex]) r.paredeTex = 'liso'; if (!TEX_PISO[r.pisoTex]) r.pisoTex = 'liso';
+  return { parede: r.parede, paredeTex: r.paredeTex, piso: r.piso, pisoTex: r.pisoTex };
+}
 function norm(x) {
   const d = modelo();
   ['wallH', 'lajeH', 'showDown', 'dims'].forEach(k => { if (x[k] === undefined) x[k] = d[k]; });
@@ -155,6 +167,7 @@ function norm(x) {
   x.varanda = Object.assign({ on: true, d: 1.5, gc: true, gcH: 1.0 }, x.varanda || {});
   x.roof = Object.assign({ on: true, plat: 0.9, caim: 10, dir: 'frente' }, x.roof || {});
   x.fundo = Object.assign(fundoDef(), x.fundo || {});
+  x.acab = acabNorm(x.acab);
   x.next = Math.max(x.next, 200);
   x.ops.forEach(o => { if (!o.h) o.h = o.type === 'door' ? 2.1 : 1.0; if (o.type === 'window' && o.sill === undefined) o.sill = 1.1; });
   return x;
@@ -182,7 +195,8 @@ function modelo() {
     varanda: { on: true, d: 1.5, gc: true, gcH: 1.0 },
     roof: { on: true, plat: 0.9, caim: 10, dir: 'frente' },
     mat: matDef(),
-    fundo: fundoDef()
+    fundo: fundoDef(),
+    acab: acabDef()
   };
 }
 
@@ -649,6 +663,12 @@ function renderPanel() {
       <label>Caimento do telhado (%)</label><input id="rC" value="${String(S.roof.caim).replace('.', ',')}">
       <label>Água cai para</label><select id="rD">${[['frente', 'Frente (varanda)'], ['fundo', 'Fundo'], ['esquerda', 'Esquerda'], ['direita', 'Direita (passagem)']].map(([v, t]) => `<option value="${v}" ${S.roof.dir === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       ${roofInfo()}
+      <h3 style="margin-top:18px">Acabamento (3D)</h3>
+      <label>Paredes: cor e textura</label>
+      <div class="row" style="flex-wrap:nowrap"><input type="color" id="aPc" value="${S.acab.parede}" style="width:56px;height:36px;padding:2px;flex:none"><select id="aPt">${Object.entries(TEX_PAREDE).map(([v, t]) => `<option value="${v}" ${S.acab.paredeTex === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <label>Piso: cor e textura</label>
+      <div class="row" style="flex-wrap:nowrap"><input type="color" id="aFc" value="${S.acab.piso}" style="width:56px;height:36px;padding:2px;flex:none"><select id="aFt">${Object.entries(TEX_PISO).map(([v, t]) => `<option value="${v}" ${S.acab.pisoTex === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <p class="muted">Aparece no 3D. A cor pinta a textura: para tijolo, escolha um tom de barro; para madeira, um marrom. O piso cobre o retângulo das paredes.</p>
       ${fundoPainel()}
       <h3 style="margin-top:18px">Resumo</h3>
       <div class="sum">Paredes: ${S.walls.length} (${fmt(tot)} m no total)<br>Portas: ${S.ops.filter(o => o.type === 'door').length} · Janelas: ${S.ops.filter(o => o.type === 'window').length} · Escadas: ${S.stairs.length} · Móveis: ${S.furn.length}</div>
@@ -712,6 +732,10 @@ function renderPanel() {
   if ($('lH')) $('lH').onchange = e => { const v = num(e.target.value); if (!(v > 0)) return renderPanel(); push(); S.laje.h = v; done(); };
   if ($('lS')) $('lS').onchange = e => { S.showDown = e.target.checked; done(); };
   if ($('lD')) $('lD').onchange = e => { S.dims = e.target.checked; done(); };
+  // acabamento: 'change' só dispara quando a escolha termina, então gera um passo só no desfazer
+  [['aPc', 'parede'], ['aPt', 'paredeTex'], ['aFc', 'piso'], ['aFt', 'pisoTex']].forEach(([id, k]) => {
+    if ($(id)) $(id).onchange = e => { push(); S.acab = acabNorm(Object.assign({}, S.acab, { [k]: e.target.value })); done(); };
+  });
 }
 
 function wallBox() {
@@ -1041,15 +1065,86 @@ function pick3d(e) {
   sel = hit ? { k: hit.object.userData.k, id: hit.object.userData.id } : null;
   render(); renderPanel();
 }
+// Texturas do acabamento. Cada uma é desenhada num canvas de 512 px que vale 1,2 m de parede ou piso.
+// São quase brancas, em tons de cinza: o three.js multiplica a textura pela cor escolhida,
+// então a mesma textura de tijolo serve para tijolo de barro, tijolo pintado de branco etc.
+// O sorteio usa uma semente fixa, para o desenho sair sempre igual.
+const TEX_M = 1.2;
+function tex3d(tipo) {
+  T3.tex = T3.tex || {};
+  if (T3.tex[tipo]) return T3.tex[tipo];
+  const N = 512, k = N / TEX_M, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d');
+  let sd = 12345; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+  const cinza = v => `rgb(${v | 0},${v | 0},${v | 0})`;
+  // manchas redondas espalhadas; cada uma é desenhada também do outro lado da borda, para a emenda não aparecer
+  const manchas = (n, r0, r1, a0, a1, cor) => {
+    for (let i = 0; i < n; i++) {
+      const x = rnd() * N, y = rnd() * N, r = r0 + rnd() * (r1 - r0), a = (a0 + rnd() * (a1 - a0)).toFixed(3);
+      for (const dx of [-N, 0, N]) for (const dy of [-N, 0, N]) {
+        // mancha grande: borda suave (degradê do centro para fora), para não parecer bolha; pontinho pequeno: borda dura
+        if (r > 6) { const gr = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r); gr.addColorStop(0, `rgba(${cor},${a})`); gr.addColorStop(1, `rgba(${cor},0)`); g.fillStyle = gr; }
+        else g.fillStyle = `rgba(${cor},${a})`;
+        g.beginPath(); g.arc(x + dx, y + dy, r, 0, 7); g.fill();
+      }
+    }
+  };
+  g.fillStyle = '#fff'; g.fillRect(0, 0, N, N);
+  if (tipo === 'reboco') { manchas(40, 25, 60, 0.04, 0.09, '0,0,0'); manchas(2500, 1, 3.5, 0.04, 0.1, '0,0,0'); }
+  else if (tipo === 'cimento') { manchas(90, 20, 80, 0.04, 0.1, '0,0,0'); manchas(60, 20, 70, 0.1, 0.2, '255,255,255'); manchas(1200, 0.5, 1.5, 0.05, 0.12, '0,0,0'); }
+  else if (tipo === 'tijolo') { // tijolo de 20 x 10 cm com junta de 1 cm, fiadas desencontradas
+    const bw = 0.2 * k, bh = 0.1 * k, j = 0.012 * k;
+    g.fillStyle = cinza(200); g.fillRect(0, 0, N, N);
+    for (let r = 0; r < 12; r++) for (let i = -1; i < 7; i++) {
+      g.fillStyle = cinza(228 + rnd() * 27); g.fillRect(i * bw + (r % 2 ? bw / 2 : 0) + j / 2, r * bh + j / 2, bw - j, bh - j);
+    }
+  } else if (tipo === 'azulejo' || tipo === 'ceramica') { // azulejo 15 x 15 cm, cerâmica 60 x 60 cm, com rejunte claro
+    const p = (tipo === 'azulejo' ? 0.15 : 0.6) * k, n = Math.round(N / p), j = Math.max(2, 0.004 * k);
+    g.fillStyle = cinza(205); g.fillRect(0, 0, N, N);
+    for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) { g.fillStyle = cinza(240 + rnd() * 15); g.fillRect(a * p + j / 2, b * p + j / 2, p - j, p - j); }
+  } else if (tipo === 'madeira') { // tábuas de 15 cm, cada uma com um tom, veios e uma emenda em altura sorteada
+    const pw = N / 8;
+    for (let i = 0; i < 8; i++) {
+      const x = i * pw; g.fillStyle = cinza(215 + rnd() * 40); g.fillRect(x, 0, pw, N);
+      for (let v = 0; v < 7; v++) {
+        const x0 = x + 3 + rnd() * (pw - 6), amp = 1 + rnd() * 2.5, fase = rnd() * 6.3;
+        g.strokeStyle = `rgba(0,0,0,${(0.05 + rnd() * 0.08).toFixed(3)})`; g.lineWidth = 0.7 + rnd() * 1.2; g.beginPath();
+        for (let y = 0; y <= N; y += 8) { const xx = x0 + amp * Math.sin(y / N * 6.283 * 2 + fase); y ? g.lineTo(xx, y) : g.moveTo(xx, y); }
+        g.stroke();
+      }
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x, 0, 1.5, N); g.fillRect(x, rnd() * N, pw, 1.5);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = Math.min(8, T3.renderer.capabilities.getMaxAnisotropy()); // deixa o piso nítido quando visto de lado
+  return T3.tex[tipo] = t;
+}
+// Coordenadas de textura em metros. Sem isso, a textura inteira seria esticada em cada caixa
+// (um pedaço de 30 cm de parede teria tijolos do mesmo tamanho que um de 4 m).
+// Cada face usa as duas direções em que ela se estende; (ox, oy, oz) é o centro da caixa,
+// para os tijolos continuarem alinhados de um pedaço da parede para o outro (em volta das janelas).
+function uvMetros(geo, ox, oy, oz) {
+  const p = geo.attributes.position, n = geo.attributes.normal, uv = geo.attributes.uv;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i) + ox, y = p.getY(i) + oy, z = p.getZ(i) + oz;
+    if (Math.abs(n.getX(i)) > 0.5) uv.setXY(i, z / TEX_M, y / TEX_M);
+    else if (Math.abs(n.getY(i)) > 0.5) uv.setXY(i, x / TEX_M, -z / TEX_M);
+    else uv.setXY(i, x / TEX_M, y / TEX_M);
+  }
+  uv.needsUpdate = true;
+}
 function build3d() {
   if (!T3) return;
   const sc = T3.scene;
   if (T3.group) { sc.remove(T3.group); T3.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
   const g = new THREE.Group(); T3.group = g;
-  const box = (w, h, d, color, x, y, z, ry, ud, op) => {
+  // tx (opcional) = { tipo, o: [x, y, z] }: textura do acabamento e o ponto de referência dela
+  const box = (w, h, d, color, x, y, z, ry, ud, op, tx) => {
     if (w <= 0.001 || h <= 0.001 || d <= 0.001) return;
     const geo = new THREE.BoxGeometry(w, h, d);
     const mat = new THREE.MeshLambertMaterial({ color, transparent: !!op, opacity: op || 1, depthWrite: !op });
+    if (tx && tx.tipo !== 'liso') { mat.map = tex3d(tx.tipo); uvMetros(geo, tx.o[0], tx.o[1], tx.o[2]); }
     const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = ry || 0; if (ud) m.userData = ud; g.add(m);
     if (!op) { const ed = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x6b6b6b })); ed.position.copy(m.position); ed.rotation.copy(m.rotation); g.add(ed); }
   };
@@ -1057,14 +1152,23 @@ function build3d() {
   box(L.w, 0.12, L.h, 0xe2c99a, L.w / 2, -0.06, L.h / 2);
   if (S.showDown) box(L.w, H0 - 0.12, L.h, 0x8d96a0, L.w / 2, -0.12 - (H0 - 0.12) / 2, L.h / 2, 0, null, 0.18);
   const grid = new THREE.GridHelper(40, 40, 0xb9bec4, 0xd5d9de); grid.position.set(L.w / 2, -H0, L.h / 2); g.add(grid);
+  const A = S.acab;
+  // piso: uma placa de 1 cm sobre a laje, cobrindo o retângulo que envolve as paredes
+  const wp = wallBox();
+  if (wp && wp.x1 - wp.x0 > 0.05 && wp.y1 - wp.y0 > 0.05) {
+    const cx = (wp.x0 + wp.x1) / 2, cz = (wp.y0 + wp.y1) / 2;
+    box(wp.x1 - wp.x0, 0.01, wp.y1 - wp.y0, A.piso, cx, 0.005, cz, 0, null, 0, { tipo: A.pisoTex, o: [cx, 0.005, cz] });
+  }
 
   S.walls.forEach(w => {
     const q = G(w), t = w.t, H = w.hgt || S.wallH, ry = -Math.atan2(q.uy, q.ux);
-    const on = sel && sel.k === 'w' && sel.id === w.id, col = on ? 0x6b8ff0 : 0xefe9de, ud = { k: 'w', id: w.id };
+    const on = sel && sel.k === 'w' && sel.id === w.id, col = on ? 0x6b8ff0 : A.parede, ud = { k: 'w', id: w.id };
     const seg = (a, b, y0, y1, c, d, u, op) => {
       const cap = v3dMode === 'cut' ? 1.2 : 1e9; if (y0 >= cap) return; y1 = Math.min(y1, cap);
       const ea = a <= 1e-4 ? -t / 2 : a, eb = b >= q.L - 1e-4 ? q.L + t / 2 : b, p = P(w, q, (ea + eb) / 2);
-      box(eb - ea, y1 - y0, d || t, c, p[0], (y0 + y1) / 2, p[1], ry, u, op);
+      // só os pedaços da própria parede levam a textura (porta e janela não); selecionada fica azul lisa
+      const tx = u === ud && !on ? { tipo: A.paredeTex, o: [(ea + eb) / 2, (y0 + y1) / 2, 0] } : null;
+      box(eb - ea, y1 - y0, d || t, c, p[0], (y0 + y1) / 2, p[1], ry, u, op, tx);
     };
     const ops = S.ops.filter(o => o.wall === w.id).sort((a, b) => a.pos - b.pos);
     let cur = 0;
