@@ -41,6 +41,7 @@ O 3D usa a biblioteca [three.js](https://github.com/mrdoob/three.js), também so
 | `icons/` | Ícones do app (arte de Ricardo Silva) |
 | `splash.webp` | Tela de abertura (arte de Ricardo Silva) |
 | `LICENSE` | Licença MIT |
+| `CLAUDE.md` | Regras de trabalho para o Claude Code neste repositório |
 | `.nojekyll` | Faz o GitHub Pages servir os arquivos sem processar |
 
 ## Onde os dados ficam
