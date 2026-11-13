@@ -15,7 +15,8 @@ Este arquivo é lido pelo Claude Code ao abrir a pasta. Ele vale para qualquer t
 - `index.html` contém o app inteiro (HTML, CSS e JavaScript), sem framework e sem etapa de build. Mantenha assim, a não ser que haja um motivo forte e o Ricardo aprove.
 - `sw.js` é o service worker que guarda os arquivos para uso offline. `manifest.webmanifest`, `icons/` e `splash.webp` são do PWA.
 - O 3D usa three.js r128, carregado do cdnjs e guardado pelo service worker.
-- O estado inteiro do projeto fica no objeto `S` (`laje`, `walls`, `ops`, `stairs`, `furn`, `varanda`, `roof`, `mat`) e é salvo em `localStorage`. Não há servidor.
+- O estado inteiro do projeto fica no objeto `S` (`laje`, `walls`, `ops`, `stairs`, `furn`, `varanda`, `roof`, `mat`, `fundo`, `acab`, `nivel`, `outro`) e é salvo em `localStorage`. Não há servidor.
+- Dois andares: `S.walls`, `S.ops` e `S.furn` são sempre do andar **em edição** (`S.nivel`: `'laje'` ou `'terreo'`); o outro andar fica em `S.outro`. Para algo que é sempre da laje (materiais, telhado, guarda-corpo), use `naLaje(fn)`; para ler um andar específico, `andar('laje')` ou `andar('terreo')`.
 - A função `norm()` completa projetos antigos com os campos novos. Ao criar um campo novo em `S`, atualize `norm()` para não quebrar projetos já salvos nos aparelhos.
 - Os backups ficam em `localStorage`, na chave terminada em `-backups`.
 
