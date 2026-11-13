@@ -89,5 +89,5 @@ Para ver quanto uma foto sua ocupa no app depois de reduzida:
 
 ```
 cd tests
-node medir-foto.mjs "C:\caminho\daoto.jpg"
+node medir-foto.mjs "C:\Fotos\planta.jpg"
 ```
