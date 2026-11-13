@@ -143,6 +143,30 @@ async function roteiro(browser, url, nome, opcoes) {
   await topo(page, '#bRedo');
   confere('refazer', Math.abs(await comp(idNova) - 2) < 0.01, (await comp(idNova)).toFixed(2) + ' m');
 
+  // --- escada por cima de parede (item 3) ---
+  // A parede da direita do modelo vai de (4;0) a (4;6). A escada é posta com o centro em cima dela.
+  const nUndo = await page.evaluate(() => undoSt.length);
+  await topo(page, '[data-mode="stair"]'); await clicaPlanta(page, 4, 4.5);
+  const idEsc = (await estado(page)).sel.id;
+  await page.keyboard.press('Escape');
+  await clicaPlanta(page, 4, 5);
+  const selEsc = await page.evaluate(() => sel);
+  confere('clicar na escada por cima da parede seleciona a escada', selEsc && selEsc.k === 's' && selEsc.id === idEsc, JSON.stringify(selEsc));
+  const paredesAntes = await page.evaluate(() => JSON.stringify(S.walls));
+  const yEsc = await page.evaluate(id => ST(id).y, idEsc);
+  await arrasta(page, 4, 5, 4, 5.5);
+  const movida = await page.evaluate(([id, pa]) => ({ dy: ST(id).y, paredesIguais: JSON.stringify(S.walls) === pa }), [idEsc, paredesAntes]);
+  confere('arrastar a escada por cima da parede move a escada e não a parede', Math.abs(movida.dy - yEsc - 0.5) < 0.06 && movida.paredesIguais, `y ${yEsc} → ${movida.dy}`);
+  await clicaPlanta(page, 4, 0.8);
+  const selFora = await page.evaluate(() => sel);
+  confere('a parede continua selecionável fora da escada', selFora && selFora.k === 'w' && selFora.id === 2, JSON.stringify(selFora));
+  const vaos = (await estado(page)).ops;
+  await topo(page, '[data-mode="door"]'); await clicaPlanta(page, 4, 5.2);
+  const porta = await page.evaluate(() => { const o = S.ops[S.ops.length - 1]; return { n: S.ops.length, wall: o.wall, type: o.type }; });
+  confere('porta pode ser posta na parede embaixo da escada', porta.n === vaos + 1 && porta.wall === 2 && porta.type === 'door', JSON.stringify(porta));
+  await page.evaluate(n => { while (undoSt.length > n) undo(); }, nUndo);
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-2a-escada-parede.png`) });
+
   // --- zoom ---
   const s0 = await page.evaluate(() => view.s);
   await topo(page, '#bZin'); const s1 = await page.evaluate(() => view.s);

@@ -351,7 +351,7 @@ function build(exp) {
   S.stairs.forEach(s => {
     const on = !exp && sel && sel.k === 's' && sel.id === s.id, col = on ? '#1d4ed8' : '#333', hl = s.l / 2, hw = s.w / 2;
     h += `<g transform="translate(${s.x} ${s.y}) rotate(${s.rot})">`;
-    h += `<rect ${exp ? '' : `data-k="s" data-id="${s.id}" style="cursor:grab"`} x="${-hw}" y="${-hl}" width="${s.w}" height="${s.l}" fill="#fff" stroke="${col}" stroke-width="${1.6 * px}"/>`;
+    h += `<rect x="${-hw}" y="${-hl}" width="${s.w}" height="${s.l}" fill="#fff" stroke="${col}" stroke-width="${1.6 * px}"/>`; // a área de clique da escada fica mais abaixo
     for (let i = 1; i < s.n; i++) { const y = -hl + i * s.l / s.n; h += `<line x1="${-hw}" y1="${y}" x2="${hw}" y2="${y}" stroke="${col}" stroke-width="${0.8 * px}" pointer-events="none"/>`; }
     const ah = Math.min(0.25, s.w * 0.3);
     h += `<circle cx="0" cy="${hl - 0.15}" r="${Math.min(0.06, s.w * 0.08)}" fill="${col}" pointer-events="none"/>`;
@@ -375,6 +375,13 @@ function build(exp) {
     // áreas de clique
     S.walls.forEach(w => {
       h += `<line data-k="w" data-id="${w.id}" x1="${w.x1}" y1="${w.y1}" x2="${w.x2}" y2="${w.y2}" stroke="transparent" stroke-width="${Math.max(w.t, 16 * px)}" style="cursor:pointer"/>`;
+    });
+    // Escadas: no SVG, o que é desenhado depois fica por cima e recebe o clique. Por isso a área de clique
+    // da escada vem depois da área das paredes; assim, onde a escada cobre uma parede, o clique pega a escada.
+    // Só no modo Selecionar: nos modos Porta e Janela o clique precisa achar a parede que está embaixo.
+    // Portas, janelas e móveis vêm depois e continuam clicáveis mesmo em cima de uma escada.
+    if (mode === 'select') S.stairs.forEach(s => {
+      h += `<g transform="translate(${s.x} ${s.y}) rotate(${s.rot})"><rect data-k="s" data-id="${s.id}" x="${-s.w / 2}" y="${-s.l / 2}" width="${s.w}" height="${s.l}" fill="transparent" style="cursor:grab"/></g>`;
     });
     S.ops.forEach(o => {
       const w = W(o.wall); if (!w) return; const g = G(w);

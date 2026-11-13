@@ -66,6 +66,7 @@ Assim os aparelhos baixam a versão nova e mostram o aviso "Nova versão instala
 - O 3D usa three.js r128, carregado do cdnjs e guardado pelo service worker para uso offline.
 - O app não tem servidor nem sincronização na nuvem: o projeto e os backups ficam só no `localStorage` do aparelho, e o topo mostra "💾 Salvo neste aparelho". Se o navegador recusar salvar (memória cheia, modo anônimo), o aviso muda para "⚠️ Não consegui salvar neste aparelho". O antigo código de sincronização com a nuvem do Claude (`initCloud`, `pushCloud`, `pushBackups`, `window.claude`) foi removido porque fora do Claude não fazia nada.
 - No celular (tela até 760 px de largura), o topo vira um menu compacto: duas fileiras de botões com ícone e nome, a lista de móveis só aparece no modo "Colocar móvel" e imagem, exportar, abrir, backups e o aviso de salvamento ficam no menu **☰ Mais**. É feito só com CSS (`@media`) sobre os mesmos botões; no computador nada muda.
+- Ordem de clique no desenho 2D: no SVG, o que é desenhado por último fica por cima e recebe o toque. As áreas de clique invisíveis seguem a ordem paredes → escadas → portas e janelas → móveis → bolinhas das pontas da parede selecionada. Assim, onde uma escada cobre uma parede, o toque pega a escada. Nos modos Porta e Janela as escadas não recebem o toque, para dar para pôr uma porta na parede que está embaixo.
 
 ## Testes
 
