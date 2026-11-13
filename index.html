@@ -96,6 +96,7 @@ header button .ic{margin-right:5px}
   </div>
   <button id="bMore" title="Imagem, exportar, abrir, backups" aria-haspopup="true"><span class="ic">☰</span><span class="tx">Mais</span></button>
   <div class="grp more">
+    <button id="bBg"><span class="ic">🗺</span><span class="tx">Imagem de fundo</span></button>
     <button id="bImg"><span class="ic">🖼</span><span class="tx">Gerar imagem</span></button>
     <button id="bExp"><span class="ic">💾</span><span class="tx">Exportar projeto</span></button>
     <button id="bImp"><span class="ic">📂</span><span class="tx">Abrir projeto</span></button>
@@ -110,6 +111,7 @@ header button .ic{margin-right:5px}
 </main>
 <div id="modal"><div class="box" id="mbox"></div></div>
 <input type="file" id="file" accept=".json,application/json,text/plain" style="display:none">
+<input type="file" id="fileBg" accept="image/*" style="display:none">
 
 <script>
 "use strict";
@@ -138,6 +140,11 @@ function furnDef() {
 // pBloco, pCim e pAreia são os preços do orçamento, em reais (0 = ainda não informado).
 // Projetos antigos recebem esses campos com 0 pelo norm(), que completa S.mat a partir daqui.
 function matDef() { return { tipo: '9x19x19', bw: 19, bh: 19, bt: 9, j: 1, perda: 10, trAss: 6, reboco: true, faces: 2, rebEsp: 2, trReb: 6, perdaArg: 15, pBloco: 0, pCim: 0, pAreia: 0 }; }
+// Imagem de fundo: S.fundo guarda só os ajustes (posição, largura em metros, proporção, opacidade).
+// A imagem em si fica numa chave separada do localStorage (KEY + '-fundo'), junto com um id.
+// Ela só aparece se o id for o mesmo de S.fundo.id. Assim a imagem não pesa nos backups nem no
+// desfazer, e um projeto aberto de outro aparelho não mostra a imagem de outro projeto.
+function fundoDef() { return { id: null, on: true, x: 0, y: 0, w: 10, ar: 1, op: 0.5 }; }
 function norm(x) {
   const d = modelo();
   ['wallH', 'lajeH', 'showDown', 'dims'].forEach(k => { if (x[k] === undefined) x[k] = d[k]; });
@@ -146,6 +153,7 @@ function norm(x) {
   if (!x.furn) x.furn = furnDef();
   x.varanda = Object.assign({ on: true, d: 1.5, gc: true, gcH: 1.0 }, x.varanda || {});
   x.roof = Object.assign({ on: true, plat: 0.9, caim: 10, dir: 'frente' }, x.roof || {});
+  x.fundo = Object.assign(fundoDef(), x.fundo || {});
   x.next = Math.max(x.next, 200);
   x.ops.forEach(o => { if (!o.h) o.h = o.type === 'door' ? 2.1 : 1.0; if (o.type === 'window' && o.sill === undefined) o.sill = 1.1; });
   return x;
@@ -172,7 +180,8 @@ function modelo() {
     furn: furnDef(),
     varanda: { on: true, d: 1.5, gc: true, gcH: 1.0 },
     roof: { on: true, plat: 0.9, caim: 10, dir: 'frente' },
-    mat: matDef()
+    mat: matDef(),
+    fundo: fundoDef()
   };
 }
 
@@ -182,6 +191,19 @@ if (!S || !S.walls) S = modelo();
 norm(S);
 
 let sel = null, mode = 'select', drag = null, preview = null;
+let calib = null; // pontos marcados ao medir a escala da imagem de fundo: { a: [x, y], b: [x, y] }
+const BG = KEY + '-fundo';
+let fundo = null; // imagem de fundo guardada neste aparelho: { id, url } (url curta do tipo blob:, para desenhar rápido)
+function fundoCarrega() {
+  try {
+    const j = JSON.parse(localStorage.getItem(BG) || 'null'); if (!j || !j.data) return;
+    const bin = atob(j.data.split(',')[1]), arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    fundo = { id: j.id, url: URL.createObjectURL(new Blob([arr], { type: 'image/jpeg' })) };
+  } catch (e) { fundo = null; }
+}
+fundoCarrega();
+const temFundo = () => !!(fundo && S.fundo.id && fundo.id === S.fundo.id);
 let undoSt = [], redoSt = [];
 const view = { x: -1.5, y: -1.5, s: 60 };
 
@@ -289,6 +311,8 @@ function build(exp) {
       g += `<line x1="${view.x}" y1="${y}" x2="${view.x + vw}" y2="${y}" stroke="${major ? '#e3e1da' : '#f0efea'}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
     }
     h += g;
+    // imagem de fundo (só na tela; não entra no PNG gerado). pointer-events="none": o clique passa por ela.
+    if (S.fundo.on && temFundo()) { const F = S.fundo; h += `<image href="${fundo.url}" x="${F.x}" y="${F.y}" width="${F.w}" height="${F.w * F.ar}" opacity="${F.op}" preserveAspectRatio="none" pointer-events="none"/>`; }
   }
   // laje
   h += `<rect x="0" y="0" width="${L.w}" height="${L.h}" fill="#fbefd9" stroke="#b07a2a" stroke-width="${1.5 * px}" stroke-dasharray="${8 * px} ${5 * px}"/>`;
@@ -373,6 +397,12 @@ function build(exp) {
     });
   }
 
+  if (!exp && mode === 'calib' && calib) {
+    // pontos marcados para medir a escala da imagem de fundo
+    const pts = [calib.a, calib.b].filter(Boolean);
+    if (pts.length === 2) h += `<line x1="${pts[0][0]}" y1="${pts[0][1]}" x2="${pts[1][0]}" y2="${pts[1][1]}" stroke="#d92d20" stroke-width="${2 * px}"/>`;
+    pts.forEach(q => { h += `<circle cx="${q[0]}" cy="${q[1]}" r="${6 * px}" fill="none" stroke="#d92d20" stroke-width="${2 * px}"/><circle cx="${q[0]}" cy="${q[1]}" r="${1.5 * px}" fill="#d92d20"/>`; });
+  }
   if (!exp) {
     // áreas de clique
     S.walls.forEach(w => {
@@ -419,12 +449,98 @@ function render() {
     door: 'Clique em cima de uma parede para colocar uma porta.',
     window: 'Clique em cima de uma parede para colocar uma janela.',
     furn: 'Escolha o móvel na lista e clique no desenho onde ele deve ficar.',
-    stair: 'Clique no desenho onde a escada deve ficar. Depois ajuste tamanho, degraus e sentido no painel.'
+    stair: 'Clique no desenho onde a escada deve ficar. Depois ajuste tamanho, degraus e sentido no painel.',
+    bg: 'Arraste para mover a imagem de fundo. Toque em “Pronto” no painel quando terminar.',
+    calib: calib && calib.b ? 'Agora digite no painel a distância real entre os dois pontos.' : calib ? 'Toque no segundo ponto da medida que você conhece.' : 'Toque no primeiro ponto de uma medida que você conhece na imagem (por exemplo, a ponta de uma parede).'
   };
   hint.textContent = is3d ? '3D: arraste para girar, rodinha ou dois dedos para zoom, botão direito (ou Shift) para mover. Clique num item para editar no painel.' : hints[mode];
 }
 
 /* ---------- painel ---------- */
+function fundoPainel() {
+  const F = S.fundo, ok = temFundo();
+  let h = `<h3 style="margin-top:18px" id="fundoSec">Imagem de fundo</h3>`;
+  if (!ok) {
+    h += `<p class="muted">Carregue uma foto ou uma planta antiga para desenhar por cima. Depois ajuste a escala e a transparência.</p>
+      ${F.id ? '<p class="muted" style="color:#b54708">Este projeto tinha uma imagem de fundo, mas ela fica só no aparelho onde foi carregada. Carregue de novo se quiser usar.</p>' : ''}
+      <div class="row"><button id="bgLoad">🗺 Carregar imagem…</button></div><p id="bgErr" style="color:#b42318;font-size:13px"></p>`;
+    return h;
+  }
+  if (mode === 'calib') {
+    h += calib && calib.b
+      ? `<div class="sum">Distância marcada: <b>${fmt(Math.hypot(calib.b[0] - calib.a[0], calib.b[1] - calib.a[1]))} m</b> no desenho.</div>
+         <label>Distância real entre os dois pontos (m)</label><input id="bgReal" inputmode="decimal" placeholder="ex.: 4,00">
+         <div class="row"><button id="bgApl" class="on">Aplicar escala</button><button id="bgCan">Cancelar</button></div><p id="bgErr" style="color:#b42318;font-size:13px"></p>`
+      : `<p class="muted"><b>Medir escala:</b> toque no ${calib ? 'segundo' : 'primeiro'} ponto de uma medida que você conhece na imagem (por exemplo, as duas pontas de uma parede cotada).</p><div class="row"><button id="bgCan">Cancelar</button></div>`;
+    return h;
+  }
+  h += `<label><input type="checkbox" id="bgOn" ${F.on ? 'checked' : ''} style="width:auto"> Mostrar imagem de fundo</label>
+    <label>Transparência: <b id="bgOpV">${Math.round((1 - F.op) * 100)}%</b> (mais à direita = mais apagada)</label><input type="range" id="bgOp" min="0" max="95" step="5" value="${Math.round((1 - F.op) * 100)}" style="padding:0">
+    <label>Largura da imagem (m) — altura ${fmt(F.w * F.ar)} m</label><input id="bgW" inputmode="decimal" value="${fmt(F.w)}">
+    <div class="row"><button id="bgMove" ${mode === 'bg' ? 'class="on"' : ''}>${mode === 'bg' ? '✓ Pronto' : '✋ Mover imagem'}</button><button id="bgCal">📏 Medir escala</button></div>
+    <div class="row"><button id="bgLoad">Trocar imagem…</button><button id="bgDel" class="danger">Remover imagem</button></div>
+    <p id="bgErr" style="color:#b42318;font-size:13px"></p>
+    <p class="muted">Para acertar a escala, use “Medir escala”: toque nas duas pontas de uma medida conhecida da imagem e digite o valor real. Depois use “Mover imagem” para encaixar nas paredes. A imagem fica só neste aparelho: não vai no projeto exportado nem na imagem PNG.</p>`;
+  return h;
+}
+function fundoLiga($) {
+  const err = t => { const e = $('bgErr'); if (e) e.textContent = t; };
+  if ($('bgLoad')) $('bgLoad').onclick = () => $('fileBg').click();
+  if ($('bgOn')) $('bgOn').onchange = e => { push(); S.fundo.on = e.target.checked; done(); };
+  if ($('bgOp')) {
+    $('bgOp').oninput = e => { S.fundo.op = 1 - e.target.value / 100; $('bgOpV').textContent = e.target.value + '%'; render(); };
+    $('bgOp').onchange = () => save();
+  }
+  if ($('bgW')) $('bgW').onchange = e => { const v = num(e.target.value); if (!(v > 0.1)) return renderPanel(); push(); S.fundo.w = v; done(); };
+  if ($('bgMove')) $('bgMove').onclick = () => { setMode(mode === 'bg' ? 'select' : 'bg'); renderPanel(); };
+  if ($('bgCal')) $('bgCal').onclick = () => { sel = null; setMode('calib'); renderPanel(); };
+  if ($('bgCan')) $('bgCan').onclick = () => { setMode('select'); renderPanel(); };
+  if ($('bgApl')) $('bgApl').onclick = () => {
+    const real = num($('bgReal').value), med = Math.hypot(calib.b[0] - calib.a[0], calib.b[1] - calib.a[1]);
+    if (!(real > 0)) return err('Digite a distância real em metros, por exemplo 4,00.');
+    if (!(med > 0.001)) return err('Os dois pontos ficaram no mesmo lugar. Toque em Cancelar e marque de novo.');
+    // aumenta ou diminui a imagem em volta do primeiro ponto, para que a distância marcada vire a real
+    const f = real / med, F = S.fundo, a = calib.a;
+    push(); F.w *= f; F.x = a[0] - (a[0] - F.x) * f; F.y = a[1] - (a[1] - F.y) * f;
+    setMode('select'); done();
+  };
+  if ($('bgDel')) $('bgDel').onclick = e => {
+    const b = e.currentTarget;
+    if (b.dataset.ok !== '1') { b.dataset.ok = '1'; b.textContent = 'Confirmar: remover (não dá para desfazer)'; return; }
+    try { localStorage.removeItem(BG); } catch (x) {}
+    if (fundo) URL.revokeObjectURL(fundo.url); fundo = null;
+    push(); S.fundo = fundoDef(); setMode('select'); done();
+  };
+}
+// Lê a imagem escolhida, diminui (no máximo 2000 px) e guarda como JPEG no aparelho.
+// Se não couber no armazenamento, tenta de novo menor antes de desistir.
+function fundoArquivo(file) {
+  const err = t => { const e = document.getElementById('bgErr'); if (e) e.textContent = t; };
+  if (!file) return;
+  if (!/^image\//.test(file.type)) return err('Escolha um arquivo de imagem (foto, JPG ou PNG). PDF não é aceito: tire um print da planta.');
+  const img = new Image(), src = URL.createObjectURL(file);
+  img.onerror = () => { URL.revokeObjectURL(src); err('Não consegui abrir essa imagem.'); };
+  img.onload = () => {
+    URL.revokeObjectURL(src);
+    const id = 'f' + Date.now();
+    let data = null;
+    for (const [max, q] of [[2000, 0.85], [1400, 0.75], [1000, 0.7]]) {
+      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      const d = c.toDataURL('image/jpeg', q);
+      try { localStorage.setItem(BG, JSON.stringify({ id, data: d })); data = d; break; } catch (e) {}
+    }
+    if (!data) return err('Não coube no armazenamento do aparelho. Tente uma imagem menor ou apague backups antigos.');
+    if (fundo) URL.revokeObjectURL(fundo.url);
+    fundoCarrega();
+    // primeira posição: no canto da planta, com a largura do desenho atual (depois o usuário mede a escala)
+    const [x0, y0, x1] = bounds(), ar = img.naturalHeight / img.naturalWidth;
+    push(); S.fundo = Object.assign(fundoDef(), { id, x: x0, y: y0, w: Math.max(x1 - x0, 1), ar });
+    sel = null; setMode('select'); done(); fit();
+  };
+  img.src = src;
+}
 function renderPanel() {
   let h = '';
   if (sel && sel.k === 'w' && W(sel.id)) {
@@ -485,6 +601,7 @@ function renderPanel() {
       <label>Caimento do telhado (%)</label><input id="rC" value="${String(S.roof.caim).replace('.', ',')}">
       <label>Água cai para</label><select id="rD">${[['frente', 'Frente (varanda)'], ['fundo', 'Fundo'], ['esquerda', 'Esquerda'], ['direita', 'Direita (passagem)']].map(([v, t]) => `<option value="${v}" ${S.roof.dir === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       ${roofInfo()}
+      ${fundoPainel()}
       <h3 style="margin-top:18px">Resumo</h3>
       <div class="sum">Paredes: ${S.walls.length} (${fmt(tot)} m no total)<br>Portas: ${S.ops.filter(o => o.type === 'door').length} · Janelas: ${S.ops.filter(o => o.type === 'window').length} · Escadas: ${S.stairs.length} · Móveis: ${S.furn.length}</div>
       <h3 style="margin-top:18px">Como usar</h3>
@@ -502,6 +619,7 @@ function renderPanel() {
   }
   panel.innerHTML = h;
   const $ = id => document.getElementById(id);
+  fundoLiga($);
   if ($('pL')) $('pL').onchange = e => {
     const v = num(e.target.value), w = W(sel.id); if (!(v > 0.05)) return renderPanel();
     push(); const g = G(w), ox = w.x2, oy = w.y2, nx = w.x1 + g.ux * v, ny = w.y1 + g.uy * v;
@@ -609,6 +727,8 @@ svg.addEventListener('pointerdown', e => {
     drag = null; preview = null; render(); return;
   }
   const p = toWorld(e.clientX, e.clientY), ds = e.target.dataset || {}, k = ds.k, id = +ds.id;
+  if (mode === 'bg') { push(); drag = { t: 'bg', p0: p, o: [S.fundo.x, S.fundo.y], pushed: true }; return; }
+  if (mode === 'calib') { calib = !calib || calib.b ? { a: p } : { a: calib.a, b: p }; render(); renderPanel(); return; }
   if (mode === 'wall') { const a = snapPt(p); drag = { t: 'new', a }; preview = [a, a]; render(); return; }
   if ((mode === 'door' || mode === 'window') && (k === 'w' || k === 'o')) {
     const nw = nearestWall(p, 1); if (!nw) return;
@@ -662,6 +782,7 @@ svg.addEventListener('pointermove', e => {
   }
   if (drag.t === 'fu') { const f = FU(drag.id); f.x = snap(p[0] + drag.off[0]); f.y = snap(p[1] + drag.off[1]); }
   if (drag.t === 'st') { const s = ST(drag.id); s.x = snap(p[0] + drag.off[0]); s.y = snap(p[1] + drag.off[1]); }
+  if (drag.t === 'bg') { S.fundo.x = drag.o[0] + p[0] - drag.p0[0]; S.fundo.y = drag.o[1] + p[1] - drag.p0[1]; }
   if (drag.t === 'op') {
     const o = O(drag.id), nw = nearestWall(p, 0.8);
     if (nw) { o.wall = nw.w.id; o.pos = snap(nw.t); }
@@ -693,23 +814,25 @@ function zoomAt(cx, cy, f) {
 }
 svg.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 1 / 1.15); }, { passive: false });
 
-function bounds() {
+function bounds(comFundo) {
   let x0 = 0, y0 = 0, x1 = S.laje.w, y1 = S.laje.h;
+  if (comFundo && S.fundo.on && temFundo()) { const F = S.fundo; x0 = Math.min(x0, F.x); y0 = Math.min(y0, F.y); x1 = Math.max(x1, F.x + F.w); y1 = Math.max(y1, F.y + F.w * F.ar); }
   S.walls.forEach(w => { x0 = Math.min(x0, w.x1, w.x2); y0 = Math.min(y0, w.y1, w.y2); x1 = Math.max(x1, w.x1, w.x2); y1 = Math.max(y1, w.y1, w.y2); });
   S.stairs.forEach(s => { const r = Math.max(s.w, s.l) / 2 + 0.3; x0 = Math.min(x0, s.x - r); y0 = Math.min(y0, s.y - r); x1 = Math.max(x1, s.x + r); y1 = Math.max(y1, s.y + r); });
   return [x0, y0, x1, y1];
 }
 function fit() {
-  const r = wrap.getBoundingClientRect(), [x0, y0, x1, y1] = bounds(), bw = x1 - x0 + 2, bh = y1 - y0 + 2;
+  const r = wrap.getBoundingClientRect(), [x0, y0, x1, y1] = bounds(true), bw = x1 - x0 + 2, bh = y1 - y0 + 2;
   view.s = Math.min(r.width / bw, r.height / bh);
   view.x = x0 - 1 - (r.width / view.s - bw) / 2; view.y = y0 - 1 - (r.height / view.s - bh) / 2; render();
 }
 
 function setMode(m) {
   if (is3d && m !== 'select') toggle3d(false);
+  if (m !== 'calib') calib = null;
   mode = m; header.classList.toggle('furn', m === 'furn'); // no celular, a lista de móveis só aparece neste modo
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  svg.style.cursor = m === 'select' ? 'default' : 'crosshair'; render();
+  svg.style.cursor = m === 'select' ? 'default' : m === 'bg' ? 'move' : 'crosshair'; render();
 }
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 // Menu "Mais" (só aparece no celular): o botão abre e fecha; escolher um item ou tocar fora fecha.
@@ -773,6 +896,14 @@ function loadText(t) {
   try { const j = JSON.parse(t); if (!j.walls || !j.laje) throw 0; addBackup('Antes de abrir projeto'); push(); S = norm(j); sel = null; done(); fit(); return true; }
   catch (e) { return false; }
 }
+document.getElementById('fileBg').onchange = e => { fundoArquivo(e.target.files[0]); e.target.value = ''; };
+// "Imagem de fundo" no menu: tira a seleção e leva o painel até a seção da imagem
+document.getElementById('bBg').onclick = () => {
+  if (is3d) toggle3d(false);
+  sel = null; if (mode !== 'bg' && mode !== 'calib') setMode('select'); renderPanel();
+  const sec = document.getElementById('fundoSec'); if (sec) sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (!temFundo()) document.getElementById('fileBg').click();
+};
 document.getElementById('bImp').onclick = () => {
   openModal(`<h3>Abrir projeto</h3><p class="muted">Cole aqui o texto exportado, ou escolha um arquivo .json.</p><textarea id="ti"></textarea><p id="er" style="color:#b42318;font-size:13px"></p><div class="row"><button id="ok">Abrir texto colado</button><button id="fl">Escolher arquivo…</button></div>`);
   document.getElementById('ok').onclick = () => { if (loadText(document.getElementById('ti').value)) modal.style.display = 'none'; else document.getElementById('er').textContent = 'Texto inválido. Confira se copiou tudo.'; };

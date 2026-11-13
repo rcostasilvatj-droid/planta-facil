@@ -238,6 +238,52 @@ async function roteiro(browser, url, nome, opcoes) {
   const projAntigo = await page.evaluate(() => { const j = JSON.parse(JSON.stringify(S)); ['pBloco', 'pCim', 'pAreia'].forEach(k => delete j.mat[k]); const n = norm(j); return [n.mat.pBloco, n.mat.pCim, n.mat.pAreia, n.mat.trAss]; });
   confere('projeto antigo (sem preços) abre com preços em branco', JSON.stringify(projAntigo) === '[0,0,0,6]', JSON.stringify(projAntigo));
 
+  // --- imagem de fundo (item 5) ---
+  // "Planta antiga" de teste: 1000 x 600 px, com uma linha preta de 800 px (de x=100 a x=900, na altura 300).
+  // Ao medir a escala dizendo que essa linha tem 4 m, a imagem inteira tem que ficar com 5 m de largura.
+  const pngTeste = Buffer.from((await page.evaluate(() => {
+    const c = document.createElement('canvas'); c.width = 1000; c.height = 600; const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 1000, 600); g.strokeStyle = '#000'; g.lineWidth = 8;
+    g.beginPath(); g.moveTo(100, 300); g.lineTo(900, 300); g.stroke(); return c.toDataURL('image/png');
+  })).split(',')[1], 'base64');
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), topo(page, '#bBg')]);
+  await chooser.setFiles({ name: 'planta-antiga.png', mimeType: 'image/png', buffer: pngTeste });
+  await page.waitForFunction(() => temFundo(), null, { timeout: 5000 }).catch(() => {});
+  const fb = await page.evaluate(() => ({ tem: temFundo(), ar: S.fundo.ar, img: !!svg.querySelector('image'), guardada: !!localStorage.getItem(BG), tamS: JSON.stringify(S).length }));
+  confere('carregar imagem de fundo', fb.tem && Math.abs(fb.ar - 0.6) < 0.001 && fb.img && fb.guardada, JSON.stringify(fb));
+  confere('imagem fica fora do projeto (não pesa no salvamento)', fb.tamS < 30000 && !(await page.evaluate(() => JSON.stringify(S).includes('data:image'))), fb.tamS + ' caracteres');
+  await page.locator('#bgCal').click();
+  const F0 = await page.evaluate(() => ({ ...S.fundo }));
+  const pa = [F0.x + 0.1 * F0.w, F0.y + 0.5 * F0.w * F0.ar], pb = [F0.x + 0.9 * F0.w, F0.y + 0.5 * F0.w * F0.ar];
+  await clicaPlanta(page, ...pa); await clicaPlanta(page, ...pb);
+  await page.locator('#bgReal').fill('4,00'); await page.locator('#bgApl').click();
+  const F1 = await page.evaluate(() => ({ ...S.fundo, mode }));
+  confere('medir escala: linha de 800 px = 4 m deixa a imagem com 5 m', Math.abs(F1.w - 5) < 0.05 && F1.mode === 'select', `largura ${F1.w.toFixed(3)} m`);
+  await page.locator('#bgOp').evaluate(el => { el.value = 70; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); });
+  const op = await page.evaluate(() => [S.fundo.op, +svg.querySelector('image').getAttribute('opacity'), JSON.parse(localStorage.getItem(KEY)).fundo.op]);
+  confere('transparência ajusta a imagem e fica salva', op.every(v => Math.abs(v - 0.3) < 0.001), JSON.stringify(op));
+  const paredesFundo = await page.evaluate(() => JSON.stringify(S.walls));
+  await page.locator('#bgMove').click();
+  await arrasta(page, 1, 1, 2, 1.5);
+  const F2 = await page.evaluate(() => ({ ...S.fundo }));
+  confere('mover imagem arrastando, sem mexer nas paredes', Math.abs(F2.x - F1.x - 1) < 0.05 && Math.abs(F2.y - F1.y - 0.5) < 0.05 && paredesFundo === await page.evaluate(() => JSON.stringify(S.walls)), `x ${F1.x.toFixed(2)} → ${F2.x.toFixed(2)}`);
+  await page.locator('#bgMove').click();
+  await page.locator('#bgW').fill('6,00'); await page.locator('#bgW').press('Enter'); await page.locator('#bgW').blur();
+  confere('largura da imagem digitada', Math.abs(await page.evaluate(() => S.fundo.w) - 6) < 0.001);
+  await clicaPlanta(page, 2, 0);
+  const selPorCima = await page.evaluate(() => sel);
+  confere('clique passa pela imagem e seleciona a parede', selPorCima && selPorCima.k === 'w', JSON.stringify(selPorCima));
+  confere('imagem de fundo não entra no PNG', !(await page.evaluate(() => build(true).includes('<image'))));
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-5-fundo.png`) });
+  await abre(page, url);
+  const recarregada = await page.evaluate(() => ({ tem: temFundo(), w: S.fundo.w, img: !!svg.querySelector('image') }));
+  confere('imagem de fundo continua depois de recarregar', recarregada.tem && recarregada.img && Math.abs(recarregada.w - 6) < 0.001, JSON.stringify(recarregada));
+  await page.keyboard.press('Escape');
+  await topo(page, '#bBg');
+  await page.locator('#bgDel').click(); await page.locator('#bgDel').click();
+  const removida = await page.evaluate(() => ({ tem: temFundo(), guardada: localStorage.getItem(BG), img: !!svg.querySelector('image') }));
+  confere('remover imagem de fundo', !removida.tem && removida.guardada === null && !removida.img, JSON.stringify(removida));
+
   // --- imagem ---
   await topo(page, '#bImg');
   await page.waitForSelector('#mbox img', { timeout: 5000 }).catch(() => {});

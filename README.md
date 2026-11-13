@@ -26,6 +26,7 @@ O 3D usa a biblioteca [three.js](https://github.com/mrdoob/three.js), também so
 
 - Desenha paredes, portas, janelas, escadas e móveis (mesa com computador, cadeira, sofá, rack com TV, estante, planta).
 - Varanda com guarda-corpo e telhado embutido (platibanda).
+- Imagem de fundo: carregue uma foto ou planta antiga (**☰ Mais → 🗺 Imagem de fundo**) para desenhar por cima, com transparência, largura, **Mover imagem** e **Medir escala** (toque nas duas pontas de uma medida conhecida e digite o valor real).
 - Visualização em 3D, com as vistas: casa completa, sem telhado e por dentro.
 - Calcula lajotas/tijolos, cimento e areia das paredes, incluindo a platibanda.
 - Orçamento: você digita o preço da lajota, do saco de cimento e do m³ de areia, e o app mostra o valor de cada item e o total. **Copiar resumo** leva os valores junto.
@@ -69,6 +70,7 @@ Assim os aparelhos baixam a versão nova e mostram o aviso "Nova versão instala
 - No celular (tela até 760 px de largura), o topo vira um menu compacto: duas fileiras de botões com ícone e nome, a lista de móveis só aparece no modo "Colocar móvel" e imagem, exportar, abrir, backups e o aviso de salvamento ficam no menu **☰ Mais**. É feito só com CSS (`@media`) sobre os mesmos botões; no computador nada muda.
 - Ordem de clique no desenho 2D: no SVG, o que é desenhado por último fica por cima e recebe o toque. As áreas de clique invisíveis seguem a ordem paredes → escadas → portas e janelas → móveis → bolinhas das pontas da parede selecionada. Assim, onde uma escada cobre uma parede, o toque pega a escada. Nos modos Porta e Janela as escadas não recebem o toque, para dar para pôr uma porta na parede que está embaixo.
 - Preços do orçamento: ficam em `S.mat` (`pBloco`, `pCim`, `pAreia`, em reais; 0 = não informado), então vão junto ao exportar o projeto. Projetos antigos recebem 0 pelo `norm()`. O app não busca nem sugere preços. O total é quantidade comprada × preço: lajotas e sacos já arredondados para cima, areia pelos m³ calculados. Não inclui frete nem mão de obra. Os campos aceitam "38,90", "R$ 38,90" e "1.200" (mil e duzentos).
+- Imagem de fundo: a imagem é reduzida para no máximo 2000 px e guardada em JPEG numa chave separada do `localStorage` (`...-fundo`), com um id. Em `S.fundo` ficam só os ajustes (`id`, `on`, `x`, `y`, `w` em metros, `ar` = altura/largura, `op` = opacidade). Motivo: uma foto tem centenas de KB, e dentro de `S` ela seria copiada em cada backup e em cada passo do desfazer, estourando o limite de cerca de 5 MB do navegador. Consequências: a imagem não vai no projeto exportado nem no PNG, e só aparece quando o id bate com o do projeto aberto. PDF não é aceito; tire um print da planta.
 
 ## Testes
 

@@ -1,6 +1,6 @@
 // Service worker do Planta Fácil: guarda os arquivos para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente a versão abaixo para os aparelhos baixarem a nova.
-const CACHE = 'planta-facil-v6';
+const CACHE = 'planta-facil-v7';
 const ASSETS = [
   './',
   './index.html',
