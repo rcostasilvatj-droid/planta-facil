@@ -85,7 +85,7 @@ async function roteiro(browser, url, nome, opcoes) {
     confere('botões visíveis com pelo menos 36px para o dedo', peq.length === 0, peq.join(','));
     // menu "Mais": abre no botão, mostra os itens e fecha ao tocar fora
     await page.locator('#bMore').click();
-    const itens = ['#bImg', '#bExp', '#bImp', '#bBk', '#bReset', '#cloudSt'];
+    const itens = ['#bImg', '#bExp', '#bImp', '#bBk', '#bReset', '#saveSt'];
     const vis = []; for (const i of itens) vis.push(await page.locator(i).isVisible());
     confere('menu Mais abre com todos os itens', vis.every(Boolean), vis.join(','));
     const dentro = await page.evaluate(() => { const r = document.querySelector('.grp.more').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; });
@@ -222,8 +222,17 @@ async function roteiro(browser, url, nome, opcoes) {
   await ctx2.close();
 
   // --- status de salvamento ---
-  const st = await page.locator('#cloudSt').textContent();
-  confere('aviso de salvamento presente', /Salvo/.test(st), st);
+  const st = await page.locator('#saveSt').textContent();
+  confere('aviso de salvamento presente', st === '💾 Salvo neste aparelho', st);
+  // simula o navegador recusando salvar (memória cheia) e confere que o aviso avisa
+  await page.evaluate(() => { window.__set = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error('cheio'); }; });
+  await topo(page, '#bUndo');
+  const stErro = await page.locator('#saveSt').textContent();
+  await page.evaluate(() => { Storage.prototype.setItem = window.__set; });
+  await topo(page, '#bRedo');
+  const stVolta = await page.locator('#saveSt').textContent();
+  confere('aviso muda quando não consegue salvar e volta depois', /Não consegui salvar/.test(stErro) && stVolta === '💾 Salvo neste aparelho', `${stErro} → ${stVolta}`);
+  confere('sem resto do código da nuvem', await page.evaluate(() => ['initCloud', 'pushCloud', 'pushBackups', 'cloud', 'bkCloud'].every(n => typeof window[n] === 'undefined' && !document.documentElement.innerHTML.includes(n + '('))));
 
   confere('sem erros de JavaScript', erros.length === 0, erros.join(' | '));
   return { ctx, page, paredes: depois.walls, erros };

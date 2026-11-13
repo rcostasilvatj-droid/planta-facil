@@ -60,7 +60,7 @@ header button .ic{margin-right:5px}
   header.open .grp.more{display:flex}
   header .grp.more button{flex:none;flex-direction:row;justify-content:flex-start;font-size:15px;padding:8px 12px}
   header .grp.more button .ic{margin:0 8px 0 0}
-  header .grp.more #cloudSt{padding:4px 6px!important}
+  header .grp.more #saveSt{padding:4px 6px!important}
   #hint{font-size:12px;padding:4px 8px;left:6px;bottom:6px;max-width:calc(100% - 12px)}
 }
 </style>
@@ -101,7 +101,7 @@ header button .ic{margin-right:5px}
     <button id="bImp"><span class="ic">📂</span><span class="tx">Abrir projeto</span></button>
     <button id="bBk"><span class="ic">🕘</span><span class="tx">Backups</span></button>
     <button id="bReset" class="danger">Restaurar modelo</button>
-    <span id="cloudSt" title="Clique para salvar agora" style="font-size:13px;color:#555;cursor:pointer;padding:0 6px"></span>
+    <span id="saveSt" title="O projeto fica salvo no navegador deste aparelho. Para outro aparelho, use Exportar projeto." style="font-size:13px;color:#555;padding:0 6px"></span>
   </div>
 </header>
 <main>
@@ -174,8 +174,8 @@ function modelo() {
   };
 }
 
-let S, hadLocal = false;
-try { const j = localStorage.getItem(KEY); hadLocal = !!j; S = j ? JSON.parse(j) : modelo(); } catch (e) { S = modelo(); }
+let S;
+try { const j = localStorage.getItem(KEY); S = j ? JSON.parse(j) : modelo(); } catch (e) { S = modelo(); }
 if (!S || !S.walls) S = modelo();
 norm(S);
 
@@ -183,10 +183,9 @@ let sel = null, mode = 'select', drag = null, preview = null;
 let undoSt = [], redoSt = [];
 const view = { x: -1.5, y: -1.5, s: 60 };
 
-let cloud = null, cloudBusy = false, cloudDirty = false, cloudTimer = null;
 /* ---------- backups ---------- */
 const BK = KEY + '-backups';
-let backups = [], bkCloud = null, bkBusy = false, bkDirty = false;
+let backups = [];
 try { backups = JSON.parse(localStorage.getItem(BK) || '[]'); if (!Array.isArray(backups)) backups = []; } catch (e) { backups = []; }
 try { const old = localStorage.getItem(KEY + '-backup'); if (old) { backups.push({ t: Date.now() - 1, nome: 'Antes de carregar da nuvem', json: old }); localStorage.removeItem(KEY + '-backup'); } } catch (e) {}
 function trimBackups() {
@@ -199,66 +198,24 @@ function saveBackups() {
   trimBackups();
   try { localStorage.setItem(BK, JSON.stringify(backups)); }
   catch (e) { backups = backups.slice(0, 8); try { localStorage.setItem(BK, JSON.stringify(backups)); } catch (e2) {} }
-  pushBackups();
-}
-async function pushBackups() {
-  if (!bkCloud) return;
-  if (bkBusy) { bkDirty = true; return; }
-  bkBusy = true;
-  try { let list = backups.slice(0, 12); while (list.length > 1 && JSON.stringify(list).length > 200000) list.pop(); await bkCloud.set({ list }); } catch (e) {}
-  bkBusy = false;
-  if (bkDirty) { bkDirty = false; pushBackups(); }
 }
 function addBackup(nome, auto) { backups.unshift({ t: Date.now(), nome, auto: !!auto, json: JSON.stringify(S) }); saveBackups(); }
 function autoBackup() {
   const last = backups.filter(b => b.auto)[0];
   if (!last || Date.now() - last.t > 10 * 60 * 1000) addBackup('Automático', true);
 }
+// Salva o projeto no navegador deste aparelho (localStorage). É chamado a cada alteração.
+// S._t guarda a hora do último salvamento (fica no arquivo exportado; hoje é só informativo).
+const SALVO = '💾 Salvo neste aparelho';
 const save = () => {
-  S._t = Date.now(); hadLocal = true;
+  S._t = Date.now();
   autoBackup();
-  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
-  if (cloud) { clearTimeout(cloudTimer); setCs('☁️ Alterações pendentes…'); cloudTimer = setTimeout(pushCloud, 1500); }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); if (!stAviso) setCs(SALVO); }
+  catch (e) { setCs('⚠️ Não consegui salvar neste aparelho — use Exportar projeto', '#b42318'); }
 };
-function setCs(t, c) { const el = document.getElementById('cloudSt'); if (el) { el.textContent = t; el.style.color = c || '#555'; } }
-async function pushCloud() {
-  if (!cloud) return;
-  if (cloudBusy) { cloudDirty = true; return; }
-  cloudBusy = true; setCs('☁️ Salvando…');
-  try { await cloud.set({ json: JSON.stringify(S), t: S._t || Date.now() }); setCs('☁️ Salvo na nuvem', '#067647'); }
-  catch (e) { setCs('⚠️ Não salvou na nuvem — salvo só neste aparelho', '#b54708'); }
-  cloudBusy = false;
-  if (cloudDirty) { cloudDirty = false; pushCloud(); }
-}
-async function initCloud() {
-  const local = () => setCs('💾 Salvo só neste aparelho');
-  if (!window.claude || typeof window.claude.use !== 'function') return local();
-  setCs('☁️ Conectando…');
-  const to = setTimeout(() => { if (!cloud) local(); }, 10000);
-  try {
-    const db = await window.claude.use('db'), user = await window.claude.use('user');
-    const uid = user ? await user.id() : null;
-    if (!db || !uid) { clearTimeout(to); return local(); }
-    const ref = db.collection('data/users/' + uid).doc('projeto');
-    const snap = await ref.get(); clearTimeout(to);
-    cloud = ref;
-    try {
-      bkCloud = db.collection('data/users/' + uid).doc('backups');
-      const bs = await bkCloud.get(), bl = bs.exists && Array.isArray(bs.data().list) ? bs.data().list : [];
-      backups = backups.concat(bl); saveBackups();
-    } catch (e) {}
-    const d = snap.exists ? snap.data() : null;
-    if (d && d.json && (!hadLocal || (d.t || 0) > (S._t || 0))) {
-      if (hadLocal) addBackup('Antes de carregar da nuvem');
-      S = norm(JSON.parse(d.json)); sel = null;
-      try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
-      renderPanel(); fit(); setCs('☁️ Projeto carregado da nuvem', '#067647');
-    } else if (hadLocal) {
-      if (!S._t) { S._t = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
-      await pushCloud();
-    } else setCs('☁️ Nuvem conectada', '#067647');
-  } catch (e) { clearTimeout(to); local(); }
-}
+// Mostra o aviso de salvamento no topo (no celular, dentro do menu "Mais").
+let stAviso = false; // true quando o aviso de "nova versão" está na tela: ele não é apagado pelo salvamento
+function setCs(t, c) { const el = document.getElementById('saveSt'); if (el) { el.textContent = t; el.style.color = c || '#555'; } }
 const fmt = v => (Math.round(v * 100) / 100).toFixed(2).replace('.', ',');
 const num = s => parseFloat(String(s).replace(',', '.'));
 const snap = v => Math.round(v / 0.05) * 0.05;
@@ -1078,7 +1035,7 @@ function openBackups() {
   const info = j => { try { const x = JSON.parse(j); return `${(x.walls || []).length} paredes · ${(x.furn || []).length} móveis · ${(x.stairs || []).length} escadas · laje ${fmt(x.laje.w)} x ${fmt(x.laje.h)}`; } catch (e) { return ''; } };
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   openModal(`<h3>Backups do projeto</h3>
-    <p class="muted">Uma cópia é guardada sozinha a cada 10 minutos de edição e antes de ações que trocam o projeto inteiro (abrir projeto, restaurar modelo, carregar da nuvem). ${cloud ? 'Os backups também ficam na nuvem, então aparecem no celular.' : 'Neste aparelho os backups ficam só aqui.'}</p>
+    <p class="muted">Uma cópia é guardada sozinha a cada 10 minutos de edição e antes de ações que trocam o projeto inteiro (abrir projeto, restaurar modelo). Os backups ficam só neste aparelho: para levar o projeto a outro aparelho, use “Exportar projeto”.</p>
     <div class="row" style="align-items:center"><input id="bkN" placeholder="Nome do backup (opcional)" style="flex:1;min-width:180px;font:inherit;padding:7px 9px;border:1px solid #ccc;border-radius:8px"><button id="bkAdd">Criar backup agora</button></div>
     <div id="bkL" style="margin-top:12px"></div>`);
   const list = () => {
@@ -1113,17 +1070,17 @@ window.addEventListener('resize', render);
 })();
 
 fixOps(); renderPanel(); requestAnimationFrame(fit);
-document.getElementById('cloudSt').onclick = () => { if (cloud) { clearTimeout(cloudTimer); pushCloud(); } };
-initCloud();
+setCs(SALVO);
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').catch(() => {});
   let reloaded = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloaded || !hadController) return;
-    setCs('🔄 Nova versão instalada — toque aqui para recarregar', '#1d4ed8');
+    stAviso = true; setCs('🔄 Nova versão instalada — toque aqui para recarregar', '#1d4ed8');
     document.getElementById('bMore').classList.add('on'); // no celular o aviso fica dentro do menu "Mais": destaca o botão
-    document.getElementById('cloudSt').onclick = () => { reloaded = true; location.reload(); };
+    const el = document.getElementById('saveSt'); el.style.cursor = 'pointer';
+    el.onclick = () => { reloaded = true; location.reload(); };
   });
 }
 </script>
