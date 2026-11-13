@@ -135,7 +135,9 @@ function furnDef() {
     { id: 106, type: 'planta', x: 0.4, y: 7.0, w: 0.4, d: 0.4, rot: 0 }
   ];
 }
-function matDef() { return { tipo: '9x19x19', bw: 19, bh: 19, bt: 9, j: 1, perda: 10, trAss: 6, reboco: true, faces: 2, rebEsp: 2, trReb: 6, perdaArg: 15 }; }
+// pBloco, pCim e pAreia são os preços do orçamento, em reais (0 = ainda não informado).
+// Projetos antigos recebem esses campos com 0 pelo norm(), que completa S.mat a partir daqui.
+function matDef() { return { tipo: '9x19x19', bw: 19, bh: 19, bt: 9, j: 1, perda: 10, trAss: 6, reboco: true, faces: 2, rebEsp: 2, trReb: 6, perdaArg: 15, pBloco: 0, pCim: 0, pAreia: 0 }; }
 function norm(x) {
   const d = modelo();
   ['wallH', 'lajeH', 'showDown', 'dims'].forEach(k => { if (x[k] === undefined) x[k] = d[k]; });
@@ -1001,6 +1003,28 @@ function calcMat() {
   return { lin, bruto, abert, liq, porM2, tij, vAss, vReb, cimKg, sacos: Math.ceil(cimKg / 50), areia, latas: Math.ceil(areia / 0.018) };
 }
 const f1 = v => v.toFixed(1).replace('.', ','), f2 = v => v.toFixed(2).replace('.', ',');
+// Dinheiro: mostra no formato brasileiro (R$ 1.234,56).
+const brl = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const brn = v => v.toLocaleString('pt-BR');
+// Lê um preço digitado: aceita "38,90", "R$ 38,90", "1.200" (mil e duzentos) e "1.200,50". Vazio = 0.
+function preco(t) {
+  t = String(t).replace(/R\$|\s/g, '');
+  if (t === '') return 0;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  return /^\d*\.?\d+$/.test(t) ? parseFloat(t) : NaN;
+}
+// Orçamento: quantidade comprada × preço. Lajotas e sacos já vêm arredondados para cima; a areia usa os m³ calculados.
+function calcOrc(r) {
+  const m = S.mat, itens = [
+    { nome: 'Lajotas/tijolos', qtd: `${brn(r.tij)} un`, q: r.tij, p: m.pBloco },
+    { nome: 'Cimento', qtd: `${r.sacos} sacos`, q: r.sacos, p: m.pCim },
+    { nome: 'Areia', qtd: `${f2(r.areia)} m³`, q: r.areia, p: m.pAreia }
+  ];
+  itens.forEach(i => i.v = i.p > 0 ? Math.round(i.q * i.p * 100) / 100 : null);
+  const faltam = itens.filter(i => i.v === null).map(i => i.nome.toLowerCase());
+  return { itens, total: itens.reduce((a, i) => a + (i.v || 0), 0), faltam };
+}
 function matResult() {
   const r = calcMat(), m = S.mat;
   return `<div class="sum" style="font-size:15px">
@@ -1009,28 +1033,47 @@ function matResult() {
     <b>Cimento</b>: <b>${r.sacos} sacos de 50 kg</b> (${f1(r.cimKg)} kg)<br>
     <b>Areia</b>: <b>${f2(r.areia)} m³</b> (≈ ${r.latas} latas de 18 L)<br>
     <span class="muted">Argamassa: assentamento ${f2(r.vAss)} m³${m.reboco ? ` · reboco ${f2(r.vReb)} m³` : ''}</span></div>
+    ${(() => { const o = calcOrc(r); return `<div class="sum" id="mOrc" style="font-size:15px;margin-top:8px"><b>Orçamento</b><br>
+      ${o.itens.map(i => `${i.nome}: ${i.qtd} × ${i.p > 0 ? brl(i.p) : '<span class="muted">sem preço</span>'}${i.v !== null ? ` = <b>${brl(i.v)}</b>` : ''}`).join('<br>')}<br>
+      <b style="font-size:17px">Total: ${brl(o.total)}</b>${o.faltam.length === 3 ? ' <span class="muted">— informe os preços abaixo</span>' : o.faltam.length ? ` <span style="color:#b54708">— parcial, falta o preço de ${o.faltam.join(' e ')}</span>` : ''}</div>`; })()}
     <details style="margin-top:8px"><summary class="muted">Paredes usadas no cálculo</summary><div class="muted">${r.lin.map(l => `Parede ${l.i}: ${f2(l.L)} m × ${f2(l.H)} m = ${f2(l.L * l.H)} m²`).join('<br>') || 'Nenhuma parede.'}</div></details>`;
 }
 function matText() {
   const r = calcMat(), m = S.mat;
-  return `Materiais — paredes (${f2(r.liq)} m² líquidos)\n${BLOCOS[m.tipo][0]}${m.tipo === 'outro' ? ` ${m.bt}x${m.bh}x${m.bw}` : ''}: ${r.tij} un\nCimento: ${r.sacos} sacos de 50 kg\nAreia: ${f2(r.areia)} m³ (≈ ${r.latas} latas de 18 L)\nTraço assentamento 1:${m.trAss}${m.reboco ? `, reboco 1:${m.trReb} (${m.faces} face(s), ${m.rebEsp} cm)` : ', sem reboco'}\nPerdas: tijolo ${m.perda}%, argamassa ${m.perdaArg}%`;
+  return `Materiais — paredes (${f2(r.liq)} m² líquidos)\n${BLOCOS[m.tipo][0]}${m.tipo === 'outro' ? ` ${m.bt}x${m.bh}x${m.bw}` : ''}: ${r.tij} un\nCimento: ${r.sacos} sacos de 50 kg\nAreia: ${f2(r.areia)} m³ (≈ ${r.latas} latas de 18 L)\nTraço assentamento 1:${m.trAss}${m.reboco ? `, reboco 1:${m.trReb} (${m.faces} face(s), ${m.rebEsp} cm)` : ', sem reboco'}\nPerdas: tijolo ${m.perda}%, argamassa ${m.perdaArg}%` + orcText(r);
+}
+function orcText(r) {
+  const o = calcOrc(r);
+  if (o.faltam.length === 3) return '\n\nOrçamento: preços não informados';
+  return '\n\nOrçamento\n' + o.itens.map(i => `${i.nome}: ${i.qtd} × ${i.p > 0 ? brl(i.p) : 'sem preço'}${i.v !== null ? ' = ' + brl(i.v) : ''}`).join('\n') +
+    `\nTotal: ${brl(o.total)}${o.faltam.length ? ` (parcial: falta o preço de ${o.faltam.join(' e ')})` : ''}\nPreços informados por quem fez o orçamento. Estimativa, confira na loja.`;
 }
 document.getElementById('bMat').onclick = () => {
   const m = S.mat, inp = (id, lab, v) => `<div><label>${lab}</label><input id="${id}" value="${String(v).replace('.', ',')}"></div>`;
+  // campo de preço: vazio quando ainda não informado; teclado numérico no celular
+  const pinp = (id, lab, v) => `<div><label>${lab}</label><input id="${id}" inputmode="decimal" placeholder="0,00" value="${v > 0 ? f2(v) : ''}"></div>`;
   openModal(`<h3>Cálculo de materiais das paredes</h3>
    <div id="mRes"></div>
    <style>#mbox .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:4px 12px}#mbox label{display:block;margin:8px 0 3px;font-size:13px;color:#555}#mbox input,#mbox select{width:100%;font:inherit;padding:6px 8px;border:1px solid #ccc;border-radius:8px}</style>
+   <h3 style="margin-top:14px">Preços (para o orçamento)</h3>
+   <div class="g">${pinp('mPb', 'Lajota/tijolo (R$ por unidade)', m.pBloco)}${pinp('mPc', 'Saco de cimento 50 kg (R$)', m.pCim)}${pinp('mPar', 'Areia (R$ por m³)', m.pAreia)}</div>
+   <p class="muted" id="mPerr" style="color:#b42318;margin:4px 0 0"></p>
    <h3 style="margin-top:14px">Tijolo / lajota</h3>
    <label>Tipo</label><select id="mTipo">${Object.entries(BLOCOS).map(([k, v]) => `<option value="${k}" ${k === m.tipo ? 'selected' : ''}>${v[0]}</option>`).join('')}</select>
    <div class="g">${inp('mBw', 'Comprimento na parede (cm)', m.bw)}${inp('mBh', 'Altura na parede (cm)', m.bh)}${inp('mBt', 'Espessura (cm)', m.bt)}${inp('mJ', 'Junta de argamassa (cm)', m.j)}${inp('mPe', 'Perda de tijolo (%)', m.perda)}${inp('mTa', 'Traço assentamento 1 : (areia)', m.trAss)}</div>
    <h3 style="margin-top:14px">Reboco</h3>
    <label><input type="checkbox" id="mRb" ${m.reboco ? 'checked' : ''} style="width:auto"> Incluir reboco</label>
    <div class="g">${inp('mFa', 'Faces rebocadas (1 ou 2)', m.faces)}${inp('mRe', 'Espessura do reboco (cm)', m.rebEsp)}${inp('mTr', 'Traço reboco 1 : (areia)', m.trReb)}${inp('mPa', 'Perda de argamassa (%)', m.perdaArg)}</div>
-   <p class="muted" style="margin-top:12px">Estimativa para orçamento. Usa a altura de cada parede, desconta portas e janelas e mede as paredes pelo centro (os cantos podem dar uns poucos tijolos a mais). Não inclui chapisco, contrapiso, laje, viga, pilar nem cal. O cimento é calculado pelo volume da argamassa: 1,3 × o volume pronto, cimento a 1.400 kg/m³. Confirme com o pedreiro o traço que ele usa.</p>
+   <p class="muted" style="margin-top:12px">Estimativa para orçamento. Usa a altura de cada parede, desconta portas e janelas e mede as paredes pelo centro (os cantos podem dar uns poucos tijolos a mais). Não inclui chapisco, contrapiso, laje, viga, pilar nem cal. O cimento é calculado pelo volume da argamassa: 1,3 × o volume pronto, cimento a 1.400 kg/m³. Confirme com o pedreiro o traço que ele usa. Os preços são os que você digitar (o app não busca preços); o total não inclui frete nem mão de obra.</p>
    <div class="row"><button id="mCp">Copiar resumo</button></div>`);
   const upd = () => { document.getElementById('mRes').innerHTML = matResult(); };
   const bind = (id, k) => document.getElementById(id).oninput = e => { const v = num(e.target.value); if (!isNaN(v) && v >= 0) { m[k] = v; if (['bw', 'bh', 'bt'].includes(k)) { m.tipo = 'outro'; document.getElementById('mTipo').value = 'outro'; } save(); upd(); } };
   [['mBw', 'bw'], ['mBh', 'bh'], ['mBt', 'bt'], ['mJ', 'j'], ['mPe', 'perda'], ['mTa', 'trAss'], ['mFa', 'faces'], ['mRe', 'rebEsp'], ['mTr', 'trReb'], ['mPa', 'perdaArg']].forEach(([a, b]) => bind(a, b));
+  [['mPb', 'pBloco'], ['mPc', 'pCim'], ['mPar', 'pAreia']].forEach(([id, k]) => document.getElementById(id).oninput = e => {
+    const v = preco(e.target.value), er = document.getElementById('mPerr');
+    if (isNaN(v)) { er.textContent = 'Preço inválido: use números, por exemplo 38,90'; return; }
+    er.textContent = ''; m[k] = v; save(); upd();
+  });
   document.getElementById('mRb').onchange = e => { m.reboco = e.target.checked; save(); upd(); };
   document.getElementById('mTipo').onchange = e => { const b = BLOCOS[e.target.value]; m.tipo = e.target.value; if (b[1]) { m.bw = b[1]; m.bh = b[2]; m.bt = b[3]; ['mBw', 'mBh', 'mBt'].forEach((id, i) => document.getElementById(id).value = b[i + 1]); } save(); upd(); };
   document.getElementById('mCp').onclick = async ev => { try { await navigator.clipboard.writeText(matText()); ev.target.textContent = 'Copiado!'; } catch (e) { ev.target.textContent = 'Não consegui copiar'; } };

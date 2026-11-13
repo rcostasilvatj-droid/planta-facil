@@ -61,7 +61,7 @@ async function abre(page, url) {
 async function roteiro(browser, url, nome, opcoes) {
   telaAtual = nome;
   console.log(`\n=== ${nome} (${opcoes.viewport.width}x${opcoes.viewport.height}) ===`);
-  const ctx = await browser.newContext({ ...opcoes, acceptDownloads: true });
+  const ctx = await browser.newContext({ ...opcoes, acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
   const page = await ctx.newPage();
   const erros = [];
   page.on('pageerror', e => erros.push(e.message));
@@ -211,6 +211,33 @@ async function roteiro(browser, url, nome, opcoes) {
   confere('materiais mudam quando a parede muda', mat1.length > 20 && mat1 !== mat2);
   await topo(page, '#bUndo');
 
+  // --- orçamento (item 4) ---
+  await topo(page, '#bMat');
+  const semPreco = await page.locator('#mOrc').innerText();
+  confere('orçamento sem preços pede para informar', /Total: R\$\s?0,00/.test(semPreco) && /informe os preços/.test(semPreco), semPreco.replace(/\n/g, ' | '));
+  await page.locator('#mPb').fill('1,20');
+  const parcial = await page.locator('#mOrc').innerText();
+  confere('orçamento parcial avisa o que falta', /parcial, falta o preço de cimento e areia/.test(parcial));
+  await page.locator('#mPc').fill('R$ 38,90'); await page.locator('#mPar').fill('150');
+  const esperado = await page.evaluate(() => { const r = calcMat(); return brl(Math.round(r.tij * 1.2 * 100) / 100 + Math.round(r.sacos * 38.9 * 100) / 100 + Math.round(r.areia * 150 * 100) / 100); });
+  const cheio = await page.locator('#mOrc').innerText();
+  confere('total do orçamento = soma de quantidade × preço', cheio.includes('Total: ' + esperado) && !/parcial|informe/.test(cheio), esperado);
+  await page.locator('#mPc').fill('abc');
+  const erroP = await page.locator('#mPerr').innerText(), pc = await page.evaluate(() => S.mat.pCim);
+  confere('preço inválido avisa e não apaga o valor salvo', /inválido/.test(erroP) && pc === 38.9, `${erroP} / ${pc}`);
+  await page.locator('#mPc').fill('38,90');
+  const leit = await page.evaluate(() => ['38,90', 'R$ 38,90', '1.200', '1.200,50', '1.20', '150', '', '12a'].map(preco));
+  confere('leitura de preços no formato brasileiro', JSON.stringify(leit) === JSON.stringify([38.9, 38.9, 1200, 1200.5, 1.2, 150, 0, null]), JSON.stringify(leit));
+  await page.locator('#mbox').evaluate(e => e.scrollTop = 0);
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-4-orcamento.png`), fullPage: false });
+  await page.locator('#mCp').click();
+  await page.waitForTimeout(200);
+  const clip = await page.evaluate(() => navigator.clipboard.readText()).catch(e => 'erro: ' + e.message);
+  confere('Copiar resumo inclui preços e total', clip.includes('Orçamento') && clip.includes('× ' + await page.evaluate(() => brl(38.9))) && clip.includes('Total: ' + esperado), clip.split('\n').slice(-5).join(' | '));
+  await fechaModal(page);
+  const projAntigo = await page.evaluate(() => { const j = JSON.parse(JSON.stringify(S)); ['pBloco', 'pCim', 'pAreia'].forEach(k => delete j.mat[k]); const n = norm(j); return [n.mat.pBloco, n.mat.pCim, n.mat.pAreia, n.mat.trAss]; });
+  confere('projeto antigo (sem preços) abre com preços em branco', JSON.stringify(projAntigo) === '[0,0,0,6]', JSON.stringify(projAntigo));
+
   // --- imagem ---
   await topo(page, '#bImg');
   await page.waitForSelector('#mbox img', { timeout: 5000 }).catch(() => {});
@@ -242,6 +269,7 @@ async function roteiro(browser, url, nome, opcoes) {
   await topo(p2, '#bImp'); await p2.locator('#file').setInputFiles(arq);
   await p2.waitForFunction(n => S.walls.length === n, depois.walls, { timeout: 5000 }).catch(() => {});
   const aberto = await estado(p2);
+  confere('preços vão junto no projeto exportado', (await p2.evaluate(() => S.mat.pCim)) === 38.9);
   confere('exportar e abrir em navegador limpo', aberto.walls === depois.walls && aberto.ops === depois.ops && aberto.furn === depois.furn && aberto.stairs === depois.stairs && limpo.walls !== depois.walls, `limpo ${limpo.walls} → aberto ${aberto.walls} paredes`);
   await ctx2.close();
 
