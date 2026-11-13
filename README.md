@@ -65,3 +65,16 @@ Assim os aparelhos baixam a versão nova e mostram o aviso "Nova versão instala
 
 - O 3D usa three.js r128, carregado do cdnjs e guardado pelo service worker para uso offline.
 - O código de sincronização com a nuvem do Claude continua no arquivo, mas só funciona dentro do Claude. No GitHub Pages ele mostra "💾 Salvo só neste aparelho".
+- No celular (tela até 760 px de largura), o topo vira um menu compacto: duas fileiras de botões com ícone e nome, a lista de móveis só aparece no modo "Colocar móvel" e imagem, exportar, abrir, backups e o aviso de salvamento ficam no menu **☰ Mais**. É feito só com CSS (`@media`) sobre os mesmos botões; no computador nada muda.
+
+## Testes
+
+A pasta `tests/` tem o roteiro de regressão automático (não faz parte do app). Precisa do Node.js e do Edge ou Chrome instalados:
+
+```
+cd tests
+npm install
+npm test
+```
+
+Ele sobe um servidor local e repete o roteiro em tela de computador (1280x800) e de celular (412x860), inclusive recarregar sem internet. As capturas de tela ficam em `tests/saida/`.

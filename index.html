@@ -41,7 +41,28 @@ aside ul{padding-left:18px;margin:6px 0}
 #modal .box{background:#fff;border-radius:12px;max-width:900px;width:100%;max-height:92vh;overflow:auto;padding:16px}
 #modal img{max-width:100%;border:1px solid #ddd}
 #modal textarea{width:100%;height:220px;font-family:monospace;font-size:12px}
-@media (max-width:760px){main{flex-direction:column}aside{width:auto;border-left:0;border-top:1px solid #ddd;max-height:40vh}#wrap{min-height:55vh}}
+header button .ic{margin-right:5px}
+#bMore{display:none}
+@media (max-width:760px){
+  main{flex-direction:column}
+  aside{width:auto;border-left:0;border-top:1px solid #ddd;max-height:32vh;padding:10px 14px}
+  #wrap{min-height:62vh} /* o desenho fica com a maior parte da tela; o painel usa o que sobra e rola */
+  /* Menu compacto do celular: duas fileiras de botões (ícone em cima, nome embaixo); o resto fica no menu "Mais". */
+  header{position:relative;gap:4px;padding:5px 6px}
+  header .grp{display:contents}
+  header .brk{flex-basis:100%;height:0}
+  header button{flex:1 1 auto;min-width:40px;min-height:44px;padding:3px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;line-height:1.15;white-space:nowrap}
+  header button .ic{margin:0 0 1px;font-size:17px;line-height:1.2}
+  #bMore{display:flex}
+  #fType{display:none;order:9;flex:1 1 100%;min-height:40px}
+  header.furn #fType{display:block}
+  header .grp.more{display:none;position:absolute;top:100%;right:6px;z-index:4;flex-direction:column;gap:6px;padding:8px;min-width:220px;margin-top:2px;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+  header.open .grp.more{display:flex}
+  header .grp.more button{flex:none;flex-direction:row;justify-content:flex-start;font-size:15px;padding:8px 12px}
+  header .grp.more button .ic{margin:0 8px 0 0}
+  header .grp.more #cloudSt{padding:4px 6px!important}
+  #hint{font-size:12px;padding:4px 8px;left:6px;bottom:6px;max-width:calc(100% - 12px)}
+}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
@@ -49,34 +70,36 @@ aside ul{padding-left:18px;margin:6px 0}
 <div id="splash"><img src="splash.webp" alt="Planta Fácil — carregando"></div>
 <header>
   <div class="grp">
-    <button data-mode="select" class="on" title="Selecionar, mover e arrastar (V)">↖ Selecionar</button>
-    <button data-mode="wall" title="Desenhar parede: clique e arraste (P)">▭ Parede</button>
-    <button data-mode="door" title="Clique numa parede para pôr uma porta">🚪 Porta</button>
-    <button data-mode="window" title="Clique numa parede para pôr uma janela">🪟 Janela</button>
-    <button data-mode="stair" title="Clique no desenho para colocar uma escada">🪜 Escada</button>
+    <button data-mode="select" class="on" title="Selecionar, mover e arrastar (V)"><span class="ic">↖</span><span class="tx">Selecionar</span></button>
+    <button data-mode="wall" title="Desenhar parede: clique e arraste (P)"><span class="ic">▭</span><span class="tx">Parede</span></button>
+    <button data-mode="door" title="Clique numa parede para pôr uma porta"><span class="ic">🚪</span><span class="tx">Porta</span></button>
+    <button data-mode="window" title="Clique numa parede para pôr uma janela"><span class="ic">🪟</span><span class="tx">Janela</span></button>
+    <button data-mode="stair" title="Clique no desenho para colocar uma escada"><span class="ic">🪜</span><span class="tx">Escada</span></button>
   </div>
   <div class="grp">
     <select id="fType" title="Escolha o móvel" style="font:inherit;font-size:14px;padding:6px;border:1px solid #cfcfcf;border-radius:8px"></select>
-    <button data-mode="furn" title="Escolha o móvel ao lado e clique no desenho">🛋 Colocar móvel</button>
+    <button data-mode="furn" title="Escolha o móvel na lista e clique no desenho"><span class="ic">🛋</span><span class="tx">Colocar móvel</span></button>
+  </div>
+  <span class="brk"></span>
+  <div class="grp">
+    <button id="bUndo" title="Desfazer (Ctrl+Z)"><span class="ic">↶</span><span class="tx">Desfazer</span></button>
+    <button id="bRedo" title="Refazer (Ctrl+Y)"><span class="ic">↷</span><span class="tx">Refazer</span></button>
   </div>
   <div class="grp">
-    <button id="bUndo" title="Desfazer (Ctrl+Z)">↶ Desfazer</button>
-    <button id="bRedo" title="Refazer (Ctrl+Y)">↷ Refazer</button>
+    <button id="bZin" title="Aproximar" aria-label="Aproximar"><span class="ic" style="margin:0">＋</span></button>
+    <button id="bZout" title="Afastar" aria-label="Afastar"><span class="ic" style="margin:0">－</span></button>
+    <button id="bFit" title="Enquadrar a planta"><span class="ic">⤢</span><span class="tx">Enquadrar</span></button>
   </div>
   <div class="grp">
-    <button id="bZin" title="Aproximar">＋</button>
-    <button id="bZout" title="Afastar">－</button>
-    <button id="bFit" title="Enquadrar a planta">⤢ Enquadrar</button>
+    <button id="b3d" title="Ver a casa em 3D"><span class="ic">🧊</span><span class="tx">Ver 3D</span></button>
+    <button id="bMat" title="Calcular lajotas, cimento e areia"><span class="ic">🧱</span><span class="tx">Materiais</span></button>
   </div>
-  <div class="grp">
-    <button id="b3d" title="Ver a casa em 3D">🧊 Ver 3D</button>
-    <button id="bMat" title="Calcular lajotas, cimento e areia">🧱 Materiais</button>
-  </div>
-  <div class="grp">
-    <button id="bImg">🖼 Gerar imagem</button>
-    <button id="bExp">💾 Exportar projeto</button>
-    <button id="bImp">📂 Abrir projeto</button>
-    <button id="bBk">🕘 Backups</button>
+  <button id="bMore" title="Imagem, exportar, abrir, backups" aria-haspopup="true"><span class="ic">☰</span><span class="tx">Mais</span></button>
+  <div class="grp more">
+    <button id="bImg"><span class="ic">🖼</span><span class="tx">Gerar imagem</span></button>
+    <button id="bExp"><span class="ic">💾</span><span class="tx">Exportar projeto</span></button>
+    <button id="bImp"><span class="ic">📂</span><span class="tx">Abrir projeto</span></button>
+    <button id="bBk"><span class="ic">🕘</span><span class="tx">Backups</span></button>
     <button id="bReset" class="danger">Restaurar modelo</button>
     <span id="cloudSt" title="Clique para salvar agora" style="font-size:13px;color:#555;cursor:pointer;padding:0 6px"></span>
   </div>
@@ -92,7 +115,7 @@ aside ul{padding-left:18px;margin:6px 0}
 "use strict";
 const KEY = 'planta-laje-ricardo-v1';
 const svg = document.getElementById('cv'), wrap = document.getElementById('wrap');
-const panel = document.getElementById('panel'), hint = document.getElementById('hint');
+const panel = document.getElementById('panel'), hint = document.getElementById('hint'), header = document.querySelector('header');
 
 const FURN = {
   mesa: { nome: 'Mesa com computador', w: 1.4, d: 0.6 },
@@ -718,10 +741,16 @@ function fit() {
 
 function setMode(m) {
   if (is3d && m !== 'select') toggle3d(false);
-  mode = m; document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  mode = m; header.classList.toggle('furn', m === 'furn'); // no celular, a lista de móveis só aparece neste modo
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
   svg.style.cursor = m === 'select' ? 'default' : 'crosshair'; render();
 }
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+// Menu "Mais" (só aparece no celular): o botão abre e fecha; escolher um item ou tocar fora fecha.
+// O "tocar fora" usa pointerdown porque o desenho é refeito durante o toque e, por isso, não gera o evento click.
+document.getElementById('bMore').onclick = () => header.classList.toggle('open');
+header.querySelector('.grp.more').addEventListener('click', () => header.classList.remove('open'));
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#bMore, .grp.more')) header.classList.remove('open'); });
 document.getElementById('fType').innerHTML = Object.entries(FURN).map(([k, v]) => `<option value="${k}">${v.nome}</option>`).join('');
 document.getElementById('fType').onchange = () => setMode('furn');
 document.getElementById('bUndo').onclick = undo;
@@ -802,7 +831,7 @@ function toggle3d(on) {
   is3d = on;
   v3d.style.display = on ? 'block' : 'none';
   svg.style.display = on ? 'none' : 'block';
-  document.getElementById('b3d').textContent = on ? '✏️ Voltar ao 2D' : '🧊 Ver 3D';
+  document.getElementById('b3d').innerHTML = on ? '<span class="ic">✏️</span><span class="tx">Voltar ao 2D</span>' : '<span class="ic">🧊</span><span class="tx">Ver 3D</span>';
   if (on) { if (!T3 && !init3d()) return; focus3d(); }
   render();
   hint.textContent = on ? '3D: arraste para girar, rodinha ou dois dedos para zoom, botão direito (ou Shift) para mover. Clique num item para editar no painel.' : hint.textContent;
@@ -1093,6 +1122,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloaded || !hadController) return;
     setCs('🔄 Nova versão instalada — toque aqui para recarregar', '#1d4ed8');
+    document.getElementById('bMore').classList.add('on'); // no celular o aviso fica dentro do menu "Mais": destaca o botão
     document.getElementById('cloudSt').onclick = () => { reloaded = true; location.reload(); };
   });
 }

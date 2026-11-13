@@ -1,0 +1,8 @@
+{
+  "name": "planta-facil-testes",
+  "private": true,
+  "type": "module",
+  "description": "Testes de regressão do Planta Fácil (não fazem parte do app publicado)",
+  "scripts": { "test": "node regressao.mjs" },
+  "devDependencies": { "playwright-core": "^1.48.0" }
+}
