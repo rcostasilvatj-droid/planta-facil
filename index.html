@@ -28,6 +28,7 @@ button.danger{color:#b42318;border-color:#f1b5ae}
 main{flex:1;display:flex;min-height:0}
 #wrap{flex:1;position:relative;min-width:0;background:#fff}
 #cv{width:100%;height:100%;display:block;touch-action:none;user-select:none}
+#alerta{position:absolute;left:8px;right:8px;top:8px;z-index:3;display:none;background:#b42318;color:#fff;border-radius:8px;padding:8px 12px;font-size:14px;line-height:1.4;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
 #hint{position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #ddd;border-radius:8px;padding:6px 10px;font-size:13px;color:#555;max-width:calc(100% - 20px)}
 aside{width:290px;padding:14px;overflow:auto;background:#fafaf8;border-left:1px solid #ddd;font-size:14px}
 aside h3{font-size:15px;margin:4px 0 10px;font-weight:600}
@@ -106,7 +107,7 @@ header button .ic{margin-right:5px}
   </div>
 </header>
 <main>
-  <div id="wrap"><svg id="cv" xmlns="http://www.w3.org/2000/svg"></svg><div id="v3d" style="position:absolute;inset:0;display:none;touch-action:none;background:#eef1f4"></div><div id="hint"></div></div>
+  <div id="wrap"><svg id="cv" xmlns="http://www.w3.org/2000/svg"></svg><div id="v3d" style="position:absolute;inset:0;display:none;touch-action:none;background:#eef1f4"></div><div id="hint"></div><div id="alerta" role="alert" title="Toque para fechar"></div></div>
   <aside id="panel"></aside>
 </main>
 <div id="modal"><div class="box" id="mbox"></div></div>
@@ -234,9 +235,41 @@ const SALVO = '💾 Salvo neste aparelho';
 const save = () => {
   S._t = Date.now();
   autoBackup();
-  try { localStorage.setItem(KEY, JSON.stringify(S)); if (!stAviso) setCs(SALVO); }
-  catch (e) { setCs('⚠️ Não consegui salvar neste aparelho — use Exportar projeto', '#b42318'); }
+  gravar();
 };
+// Grava o projeto e mostra o aviso verdadeiro. A prioridade é o projeto: se o espaço acabar,
+// apaga os backups mais antigos (ficam os 3 mais novos) e tenta de novo, avisando na tela.
+// Se ainda assim não couber, o aviso diz claramente que NÃO está salvando.
+let erroSalvar = false;
+function gravar() {
+  const j = JSON.stringify(S);
+  let falha = null;
+  const tenta = () => { try { localStorage.setItem(KEY, j); return true; } catch (e) { falha = e; return false; } };
+  let ok = tenta(), cortou = false;
+  // Só apaga backups se o erro for mesmo de espaço cheio (QuotaExceededError). Se o navegador recusar por
+  // outro motivo (armazenamento bloqueado), apagar backups não ajudaria e só perderia dados.
+  const cheio = falha && (falha.name === 'QuotaExceededError' || falha.code === 22 || falha.code === 1014 || falha.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+  if (!ok && cheio && backups.length > 3) {
+    const menos = backups.slice(0, 3);
+    try { localStorage.setItem(BK, JSON.stringify(menos)); backups = menos; ok = tenta(); cortou = ok; } catch (e) {}
+  }
+  if (ok) {
+    if (!stAviso) setCs(SALVO);
+    if (cortou) alerta('⚠️ O espaço do aparelho acabou: apaguei os backups mais antigos para conseguir salvar o projeto. Use ☰ Mais → Exportar projeto para guardar uma cópia.', '#b54708');
+    else if (erroSalvar) alerta('');
+    erroSalvar = false;
+  } else {
+    erroSalvar = true;
+    setCs('⚠️ NÃO SALVO — espaço do aparelho cheio', '#b42318');
+    alerta('⚠️ O projeto não está sendo salvo neste aparelho. ' + (temFundo() ? 'Remova a imagem de fundo (☰ Mais → Imagem de fundo) para liberar espaço, ou ' : 'Para não perder o trabalho, ') + 'use ☰ Mais → Exportar projeto.');
+  }
+  return ok;
+}
+// Faixa de aviso por cima do desenho. Texto vazio esconde. Tocar nela fecha.
+function alerta(t, cor) {
+  const a = document.getElementById('alerta'); if (!a) return;
+  a.textContent = t || ''; a.style.display = t ? 'block' : 'none'; a.style.background = cor || '#b42318';
+}
 // Mostra o aviso de salvamento no topo (no celular, dentro do menu "Mais").
 let stAviso = false; // true quando o aviso de "nova versão" está na tela: ele não é apagado pelo salvamento
 function setCs(t, c) { const el = document.getElementById('saveSt'); if (el) { el.textContent = t; el.style.color = c || '#555'; } }
@@ -311,8 +344,6 @@ function build(exp) {
       g += `<line x1="${view.x}" y1="${y}" x2="${view.x + vw}" y2="${y}" stroke="${major ? '#e3e1da' : '#f0efea'}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
     }
     h += g;
-    // imagem de fundo (só na tela; não entra no PNG gerado). pointer-events="none": o clique passa por ela.
-    if (S.fundo.on && temFundo()) { const F = S.fundo; h += `<image href="${fundo.url}" x="${F.x}" y="${F.y}" width="${F.w}" height="${F.w * F.ar}" opacity="${F.op}" preserveAspectRatio="none" pointer-events="none"/>`; }
   }
   // laje
   h += `<rect x="0" y="0" width="${L.w}" height="${L.h}" fill="#fbefd9" stroke="#b07a2a" stroke-width="${1.5 * px}" stroke-dasharray="${8 * px} ${5 * px}"/>`;
@@ -327,6 +358,9 @@ function build(exp) {
   }
   if (S.varanda.gc) guardSegs().forEach(([a, b]) => { h += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#6b6b6b" stroke-width="0.05" stroke-dasharray="0.12 0.06"/>`; });
 
+  // imagem de fundo: só na tela (não entra no PNG). Fica por cima da laje e da varanda (que são opacas e a
+  // esconderiam) e por baixo das paredes e do resto. pointer-events="none": o clique passa por ela.
+  if (!exp && S.fundo.on && temFundo()) { const F = S.fundo; h += `<image href="${fundo.url}" x="${F.x}" y="${F.y}" width="${F.w}" height="${F.w * F.ar}" opacity="${F.op}" preserveAspectRatio="none" pointer-events="none"/>`; }
   // paredes
   S.walls.forEach(w => {
     const g = G(w), t = w.t, on = !exp && sel && sel.k === 'w' && sel.id === w.id;
@@ -514,6 +548,7 @@ function fundoLiga($) {
 }
 // Lê a imagem escolhida, diminui (no máximo 2000 px) e guarda como JPEG no aparelho.
 // Se não couber no armazenamento, tenta de novo menor antes de desistir.
+const FUNDO_MAX = 800000, FUNDO_RESERVA = 600000; // em caracteres do localStorage (o navegador guarda uns 5 milhões)
 function fundoArquivo(file) {
   const err = t => { const e = document.getElementById('bgErr'); if (e) e.textContent = t; };
   if (!file) return;
@@ -523,15 +558,28 @@ function fundoArquivo(file) {
   img.onload = () => {
     URL.revokeObjectURL(src);
     const id = 'f' + Date.now();
+    // Regras de espaço:
+    // - a imagem guardada não passa de FUNDO_MAX caracteres (~800 KB); se passar, tenta menor;
+    // - depois de guardar, ainda precisa sobrar FUNDO_RESERVA livre, para o projeto e os backups continuarem salvando;
+    // - se não couber, a imagem anterior (se houver) volta para o lugar e nada muda no projeto.
+    let antiga = null; try { antiga = localStorage.getItem(BG); } catch (e) {}
+    const devolve = () => { try { if (antiga) localStorage.setItem(BG, antiga); else localStorage.removeItem(BG); } catch (e) { try { localStorage.removeItem(BG); } catch (e2) {} } };
     let data = null;
-    for (const [max, q] of [[2000, 0.85], [1400, 0.75], [1000, 0.7]]) {
+    for (const [max, q] of [[2000, 0.75], [1600, 0.7], [1200, 0.65]]) {
       const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
       c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
       const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
       const d = c.toDataURL('image/jpeg', q);
-      try { localStorage.setItem(BG, JSON.stringify({ id, data: d })); data = d; break; } catch (e) {}
+      if (d.length > FUNDO_MAX) continue;
+      try { localStorage.setItem(BG, JSON.stringify({ id, data: d })); } catch (e) { devolve(); continue; }
+      try { localStorage.setItem(KEY + '-reserva', 'x'.repeat(FUNDO_RESERVA)); localStorage.removeItem(KEY + '-reserva'); data = d; break; }
+      catch (e) { try { localStorage.removeItem(KEY + '-reserva'); } catch (e2) {} devolve(); }
     }
-    if (!data) return err('Não coube no armazenamento do aparelho. Tente uma imagem menor ou apague backups antigos.');
+    if (!data) {
+      const t = 'A imagem não coube no espaço deste aparelho sem atrapalhar o salvamento do projeto, por isso não foi carregada' +
+        (antiga && temFundo() ? ' (a imagem anterior continua)' : '') + '. O projeto continua salvando. Para liberar espaço, apague backups antigos (☰ Mais → Backups) ou use uma imagem menor.';
+      err(t); alerta('⚠️ ' + t, '#b54708'); return;
+    }
     if (fundo) URL.revokeObjectURL(fundo.url);
     fundoCarrega();
     // primeira posição: no canto da planta, com a largura do desenho atual (depois o usuário mede a escala)
@@ -1251,7 +1299,8 @@ window.addEventListener('resize', render);
 })();
 
 fixOps(); renderPanel(); requestAnimationFrame(fit);
-setCs(SALVO);
+document.getElementById('alerta').onclick = () => alerta('');
+gravar(); // ao abrir, grava de verdade: assim o aviso só diz "Salvo" se o navegador aceitou salvar
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').catch(() => {});

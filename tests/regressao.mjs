@@ -251,6 +251,8 @@ async function roteiro(browser, url, nome, opcoes) {
   await page.waitForFunction(() => temFundo(), null, { timeout: 5000 }).catch(() => {});
   const fb = await page.evaluate(() => ({ tem: temFundo(), ar: S.fundo.ar, img: !!svg.querySelector('image'), guardada: !!localStorage.getItem(BG), tamS: JSON.stringify(S).length }));
   confere('carregar imagem de fundo', fb.tem && Math.abs(fb.ar - 0.6) < 0.001 && fb.img && fb.guardada, JSON.stringify(fb));
+  const ordem = await page.evaluate(() => { const els = [...svg.children], im = els.findIndex(e => e.tagName === 'image'), laje = els.findIndex(e => e.getAttribute('fill') === '#fbefd9'), parede = els.findIndex(e => e.tagName === 'polygon' || (e.tagName === 'line' && e.dataset.k === 'w')); return { im, laje, parede }; });
+  confere('imagem de fundo aparece por cima da laje (não fica escondida)', ordem.im > ordem.laje && ordem.im >= 0, JSON.stringify(ordem));
   confere('imagem fica fora do projeto (não pesa no salvamento)', fb.tamS < 30000 && !(await page.evaluate(() => JSON.stringify(S).includes('data:image'))), fb.tamS + ' caracteres');
   await page.locator('#bgCal').click();
   const F0 = await page.evaluate(() => ({ ...S.fundo }));
@@ -322,18 +324,113 @@ async function roteiro(browser, url, nome, opcoes) {
   // --- status de salvamento ---
   const st = await page.locator('#saveSt').textContent();
   confere('aviso de salvamento presente', st === '💾 Salvo neste aparelho', st);
-  // simula o navegador recusando salvar (memória cheia) e confere que o aviso avisa
+  // simula o navegador recusando salvar por um erro que não é de espaço cheio, e confere que o aviso avisa
+  await page.evaluate(() => { for (let i = 0; i < 5; i++) addBackup('extra ' + i); });
+  const bkAntes = await page.evaluate(() => backups.length);
   await page.evaluate(() => { window.__set = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error('cheio'); }; });
   await topo(page, '#bUndo');
   const stErro = await page.locator('#saveSt').textContent();
   await page.evaluate(() => { Storage.prototype.setItem = window.__set; });
   await topo(page, '#bRedo');
   const stVolta = await page.locator('#saveSt').textContent();
-  confere('aviso muda quando não consegue salvar e volta depois', /Não consegui salvar/.test(stErro) && stVolta === '💾 Salvo neste aparelho', `${stErro} → ${stVolta}`);
+  const bkDepois = await page.evaluate(() => [backups.length, JSON.parse(localStorage.getItem(BK) || '[]').length]);
+  confere('erro que não é de espaço cheio não apaga backups', bkDepois[0] === bkAntes && bkDepois[1] === bkAntes, `${bkAntes} → ${JSON.stringify(bkDepois)}`);
+  confere('aviso muda quando não consegue salvar e volta depois', /NÃO SALVO/.test(stErro) && stVolta === '💾 Salvo neste aparelho', `${stErro} → ${stVolta}`);
   confere('sem resto do código da nuvem', await page.evaluate(() => ['initCloud', 'pushCloud', 'pushBackups', 'cloud', 'bkCloud'].every(n => typeof window[n] === 'undefined' && !document.documentElement.innerHTML.includes(n + '('))));
 
   confere('sem erros de JavaScript', erros.length === 0, erros.join(' | '));
   return { ctx, page, paredes: depois.walls, erros };
+}
+
+// --- espaço do aparelho cheio (ajuste do item 5) ---
+// Enche o localStorage com um "enchimento" até sobrar só `livre` caracteres, para simular o aparelho sem espaço.
+async function encher(page, livre) {
+  return page.evaluate(livre => {
+    localStorage.removeItem('enchimento');
+    let lo = 0, hi = 12e6;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; try { localStorage.setItem('enchimento', 'a'.repeat(m)); lo = m; } catch (e) { hi = m; } }
+    localStorage.setItem('enchimento', 'a'.repeat(Math.max(0, lo - livre)));
+    return lo;
+  }, livre);
+}
+// imagem com detalhe (difícil de comprimir), para ocupar espaço de verdade
+const imgTeste = async (page, w, h, seed) => Buffer.from((await page.evaluate(([w, h, seed]) => {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'), d = g.createImageData(w, h);
+  let x = seed; for (let i = 0; i < d.data.length; i++) { x = (x * 1103515245 + 12345) & 0x7fffffff; d.data[i] = i % 4 === 3 ? 255 : x & 255; }
+  g.putImageData(d, 0, 0); return c.toDataURL('image/png');
+}, [w, h, seed])).split(',')[1], 'base64');
+async function carregaFundo(page, buf) {
+  await page.evaluate(() => { window.__id0 = S.fundo.id; const e = document.getElementById('bgErr'); if (e) e.textContent = ''; });
+  const [ch] = await Promise.all([page.waitForEvent('filechooser'), page.evaluate(() => document.getElementById('fileBg').click())]);
+  await ch.setFiles({ name: 'foto.png', mimeType: 'image/png', buffer: buf });
+  await page.waitForFunction(() => ((document.getElementById('bgErr') || {}).textContent || '') !== '' || window.__id0 !== S.fundo.id, null, { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(300);
+}
+const salvoNoAparelho = page => page.evaluate(() => { try { return JSON.parse(localStorage.getItem(KEY)).walls.length; } catch (e) { return -1; } });
+async function novaParede(page, y) { await page.evaluate(y => { push(); S.walls.push({ id: S.next++, x1: 0.5, y1: y, x2: 1.5, y2: y, t: 0.15 }); done(); }, y); }
+async function alertaVisivel(page) { const a = page.locator('#alerta'); return (await a.count()) && await a.isVisible() ? (await a.innerText()) : ''; }
+
+async function espacoCheio(browser, url, nome, opcoes) {
+  telaAtual = nome;
+  console.log(`\n=== ${nome}: espaço cheio ===`);
+  const ctx = await browser.newContext(opcoes), page = await ctx.newPage();
+  const erros = []; page.on('pageerror', e => erros.push(e.message));
+  await abre(page, url);
+  const st = () => page.locator('#saveSt').textContent();
+
+  // 1) imagem não cabe: o app recusa, avisa, e o projeto continua salvando
+  await encher(page, 300000);
+  await carregaFundo(page, await imgTeste(page, 1200, 900, 1));
+  const r1 = await page.evaluate(() => ({ tem: temFundo(), erro: (document.getElementById('bgErr') || {}).textContent || '' }));
+  const al1 = await alertaVisivel(page);
+  confere('imagem grande sem espaço é recusada com aviso claro', !r1.tem && /espaço/i.test(r1.erro + al1), (r1.erro || al1).slice(0, 100));
+  const n1 = (await estado(page)).walls; await novaParede(page, 7.0);
+  confere('depois de recusar a imagem, o projeto continua salvando', (await salvoNoAparelho(page)) === n1 + 1 && (await st()) === '💾 Salvo neste aparelho', await st());
+
+  // 2) segunda foto grande: a primeira fica, a segunda é recusada, o projeto continua salvando
+  await page.evaluate(() => localStorage.removeItem('enchimento'));
+  await carregaFundo(page, await imgTeste(page, 1200, 900, 2));
+  const id1 = await page.evaluate(() => temFundo() && S.fundo.id);
+  confere('primeira foto carrega com espaço livre', !!id1, String(id1));
+  await encher(page, 100000);
+  await carregaFundo(page, await imgTeste(page, 1300, 1000, 3));
+  const r2 = await page.evaluate(() => ({ tem: temFundo(), id: S.fundo.id, erro: (document.getElementById('bgErr') || {}).textContent || '' }));
+  confere('segunda foto grande é recusada e a primeira continua', r2.tem && r2.id === id1 && /espaço/i.test(r2.erro + await alertaVisivel(page)), `${r2.tem} ${r2.id === id1} ${r2.erro.slice(0, 80)}`);
+  const n2 = (await estado(page)).walls; await novaParede(page, 7.1);
+  confere('com a primeira foto e pouco espaço, o projeto continua salvando', (await salvoNoAparelho(page)) === n2 + 1 && (await st()) === '💾 Salvo neste aparelho', await st());
+
+  // 3) espaço acaba de vez: o aviso NÃO pode dizer "Salvo"; tem que aparecer na tela; e some quando volta a salvar
+  await page.evaluate(() => { backups = backups.slice(0, 2); saveBackups(); });
+  await encher(page, 0);
+  const n3 = await salvoNoAparelho(page);
+  for (let i = 0; i < 3; i++) await novaParede(page, 7.2 + i * 0.05);
+  const st3 = await st(), al3 = await alertaVisivel(page);
+  confere('sem espaço nenhum o aviso não diz "Salvo"', !/^💾 Salvo/.test(st3) && (await salvoNoAparelho(page)) === n3, st3);
+  const vis3 = await page.evaluate(() => { const a = document.getElementById('alerta'); if (!a) return false; const r = a.getBoundingClientRect(); return r.height > 0 && r.top >= 0 && r.bottom <= innerHeight; });
+  confere('aviso de "não salvou" aparece na tela (sem abrir menu)', vis3 && /não está sendo salvo/i.test(al3), al3.slice(0, 100));
+  await page.screenshot({ path: path.join(SAIDA, `${nome}-6-espaco-cheio.png`) });
+  await page.evaluate(() => localStorage.removeItem('enchimento'));
+  await novaParede(page, 7.4);
+  confere('quando o espaço volta, salva e o aviso some', (await salvoNoAparelho(page)) === (await estado(page)).walls && (await st()) === '💾 Salvo neste aparelho' && !(await alertaVisivel(page)), await st());
+
+  // 4) pouco espaço com muitos backups: o app apaga backups antigos para salvar o projeto, e avisa
+  await page.evaluate(() => { localStorage.removeItem(BG); S.fundo = fundoDef(); for (let i = 0; i < 14; i++) addBackup('b' + i); });
+  const nb = await page.evaluate(() => backups.length);
+  await encher(page, 0);
+  for (let i = 0; i < 6; i++) await novaParede(page, 6.6 - i * 0.05);
+  const r4 = await page.evaluate(() => backups.length), al4 = await alertaVisivel(page);
+  confere('pouco espaço: apaga backups antigos, salva o projeto e avisa', (await salvoNoAparelho(page)) === (await estado(page)).walls && r4 < nb && /backups/i.test(al4), `backups ${nb} → ${r4}; ${al4.slice(0, 70)}`);
+  await page.evaluate(() => localStorage.removeItem('enchimento'));
+  confere('sem erros de JavaScript (espaço cheio)', erros.length === 0, erros.join(' | '));
+  await ctx.close();
+
+  // 5) navegador que recusa salvar desde o início (ex.: modo privado antigo): não pode dizer "Salvo"
+  const ctx2 = await browser.newContext(opcoes);
+  await ctx2.addInitScript(() => { Storage.prototype.setItem = function () { throw new Error('bloqueado'); }; });
+  const p2 = await ctx2.newPage(); await abre(p2, url);
+  const st5 = await p2.locator('#saveSt').textContent();
+  confere('ao abrir sem conseguir salvar, o aviso não diz "Salvo"', !/^💾 Salvo/.test(st5) && !!(await alertaVisivel(p2)), st5);
+  await ctx2.close();
 }
 
 async function offline(r, srv, url) {
@@ -366,6 +463,7 @@ for (const [nome, op] of Object.entries(TELAS)) {
   const url = `http://localhost:${srv.address().port}/`;
   try {
     const r = await roteiro(browser, url, nome, op);
+    await espacoCheio(browser, url, nome, op);
     await offline(r, srv, url);
     await r.ctx.close();
   } catch (e) { confere('roteiro terminou sem travar', false, e.message.split('\n')[0]); }

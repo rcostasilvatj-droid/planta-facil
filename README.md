@@ -70,7 +70,8 @@ Assim os aparelhos baixam a versão nova e mostram o aviso "Nova versão instala
 - No celular (tela até 760 px de largura), o topo vira um menu compacto: duas fileiras de botões com ícone e nome, a lista de móveis só aparece no modo "Colocar móvel" e imagem, exportar, abrir, backups e o aviso de salvamento ficam no menu **☰ Mais**. É feito só com CSS (`@media`) sobre os mesmos botões; no computador nada muda.
 - Ordem de clique no desenho 2D: no SVG, o que é desenhado por último fica por cima e recebe o toque. As áreas de clique invisíveis seguem a ordem paredes → escadas → portas e janelas → móveis → bolinhas das pontas da parede selecionada. Assim, onde uma escada cobre uma parede, o toque pega a escada. Nos modos Porta e Janela as escadas não recebem o toque, para dar para pôr uma porta na parede que está embaixo.
 - Preços do orçamento: ficam em `S.mat` (`pBloco`, `pCim`, `pAreia`, em reais; 0 = não informado), então vão junto ao exportar o projeto. Projetos antigos recebem 0 pelo `norm()`. O app não busca nem sugere preços. O total é quantidade comprada × preço: lajotas e sacos já arredondados para cima, areia pelos m³ calculados. Não inclui frete nem mão de obra. Os campos aceitam "38,90", "R$ 38,90" e "1.200" (mil e duzentos).
-- Imagem de fundo: a imagem é reduzida para no máximo 2000 px e guardada em JPEG numa chave separada do `localStorage` (`...-fundo`), com um id. Em `S.fundo` ficam só os ajustes (`id`, `on`, `x`, `y`, `w` em metros, `ar` = altura/largura, `op` = opacidade). Motivo: uma foto tem centenas de KB, e dentro de `S` ela seria copiada em cada backup e em cada passo do desfazer, estourando o limite de cerca de 5 MB do navegador. Consequências: a imagem não vai no projeto exportado nem no PNG, e só aparece quando o id bate com o do projeto aberto. PDF não é aceito; tire um print da planta.
+- Imagem de fundo: a imagem é reduzida para no máximo 2000 px (JPEG qualidade 0,75; se passar de 800 mil caracteres, tenta 1600 px e depois 1200 px) e guardada numa chave separada do `localStorage` (`...-fundo`), com um id. Em `S.fundo` ficam só os ajustes (`id`, `on`, `x`, `y`, `w` em metros, `ar` = altura/largura, `op` = opacidade). Motivo: uma foto tem centenas de KB, e dentro de `S` ela seria copiada em cada backup e em cada passo do desfazer, estourando o limite de cerca de 5 MB do navegador. Consequências: a imagem não vai no projeto exportado nem no PNG, e só aparece quando o id bate com o do projeto aberto. PDF não é aceito; tire um print da planta.
+- Espaço cheio: o navegador guarda cerca de 5 milhões de caracteres por site, e o projeto sempre tem prioridade. Uma imagem de fundo só é aceita se, depois de guardada, ainda sobrarem 600 mil caracteres livres. Se não couber, a imagem anterior continua e aparece um aviso. Se o projeto não couber ao salvar, o app apaga os backups mais antigos (ficam os 3 mais novos) e avisa na tela. Isso só acontece quando o erro é mesmo de espaço cheio. Se ainda assim não salvar, uma faixa vermelha por cima do desenho diz que o projeto **não** está sendo salvo, e o aviso do topo troca "💾 Salvo neste aparelho" por "⚠️ NÃO SALVO". Ao abrir, o app faz uma gravação de teste, então o aviso só diz "Salvo" se o navegador aceitou salvar de verdade.
 
 ## Testes
 
@@ -83,3 +84,10 @@ npm test
 ```
 
 Ele sobe um servidor local e repete o roteiro em tela de computador (1280x800) e de celular (412x860), inclusive recarregar sem internet. As capturas de tela ficam em `tests/saida/`.
+
+Para ver quanto uma foto sua ocupa no app depois de reduzida:
+
+```
+cd tests
+node medir-foto.mjs "C:\caminho\daoto.jpg"
+```
